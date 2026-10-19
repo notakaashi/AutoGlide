@@ -1,4 +1,4 @@
-﻿"""
+"""
 components.py
 =============================================================================
 Reusable interface pieces for AutoGlide.
@@ -19,7 +19,6 @@ from tkinter import ttk
 import calendar
 import datetime
 import theme
-import config
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +116,12 @@ class Button(tk.Canvas):
         if self._enabled:
             self._paint(self._colors[1] if entering else self._colors[0])
 
+    def set_variant(self, variant):
+        """Changes the look variant after creation (used by filter chips)."""
+        self._variant = variant
+        self._colors = self._variant_colors(variant)
+        self._draw()
+
     def _on_release(self, event=None):
         """Runs the command when the mouse is released on the button."""
         if not self._enabled:
@@ -148,6 +153,7 @@ class Card(tk.Canvas):
         super().__init__(master, bg=self._parent_bg, highlightthickness=0,
                          bd=0, **kwargs)
         self._card_bg = bg
+        self.card_bg = bg  # public alias used when screens repaint cards
         self._radius = radius
         self._border = border
         self._pad = pad
@@ -173,6 +179,13 @@ class Card(tk.Canvas):
             self._last_w = inner_w
             self.itemconfigure(self._win, width=inner_w)
         self._draw(w, self.winfo_height())
+
+    def set_card_bg(self, bg):
+        """Repaints the card fill (used to highlight a selected card)."""
+        self._card_bg = bg
+        self.card_bg = bg
+        self.body.configure(bg=bg)
+        self._draw(self.winfo_width(), self.winfo_height())
 
     def _draw(self, w, h):
         """Draws the rounded background and thin border."""
@@ -408,7 +421,7 @@ class ScrollFrame(tk.Frame):
 class EntryField(tk.Frame):
     """A labeled text input with a focus border, placeholder, and error text."""
     def __init__(self, master, label, placeholder="", show=None, width=30,
-                 bg=None):
+                 text=None, bg=None):
         bg = bg or bg_of(master)
         super().__init__(master, bg=bg)
         self._placeholder = placeholder
@@ -418,7 +431,7 @@ class EntryField(tk.Frame):
             tk.Label(self, text=label, font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
                      bg=bg).pack(anchor="w", pady=(0, 4))
 
-        self.var = tk.StringVar()
+        self.var = tk.StringVar(value=text or "")
         options = {
             "textvariable": self.var,
             "font": theme.FONT_BODY,
@@ -442,7 +455,7 @@ class EntryField(tk.Frame):
         self.error_label = tk.Label(self, text="", font=theme.FONT_TINY,
                                     fg=theme.DANGER, bg=bg)
 
-        if placeholder:
+        if placeholder and not (text and text.strip()):
             self._show_placeholder()
 
     def _show_placeholder(self):
@@ -598,11 +611,13 @@ class CalendarPopup(tk.Toplevel):
 
 class DateField(tk.Frame):
     """A read-only date input that opens the calendar popup."""
-    def __init__(self, master, label="Date", value="", bg=None):
+    def __init__(self, master, label="Date", value="", on_change=None,
+                 bg=None):
         bg = bg or bg_of(master)
         super().__init__(master, bg=bg)
         self._bg = bg
         self._value = value
+        self.on_change = on_change
         if label:
             tk.Label(self, text=label, font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
                      bg=bg).pack(anchor="w", pady=(0, 4))
@@ -648,9 +663,11 @@ class DateField(tk.Frame):
         return self._value
 
     def set(self, value):
-        """Sets the date and redraws."""
+        """Sets the date, redraws, and notifies on_change."""
         self._value = value
         self._draw()
+        if self.on_change:
+            self.on_change()
 
 
 # ---------------------------------------------------------------------------
@@ -785,6 +802,101 @@ class DataTable(tk.Frame):
 
 
 # ---------------------------------------------------------------------------
+# CHECK FIELD (a canvas checkbox with a text label)
+# ---------------------------------------------------------------------------
+class CheckField(tk.Frame):
+    """A simple toggle checkbox drawn on a canvas with a text label."""
+    def __init__(self, master, label, checked=False, bg=None):
+        bg = bg or bg_of(master)
+        super().__init__(master, bg=bg)
+        self._bg = bg
+        self.checked = checked
+        self.box = tk.Canvas(self, width=18, height=18, bg=bg,
+                             highlightthickness=0, bd=0, cursor="hand2")
+        self.text = tk.Label(self, text=label, font=theme.FONT_BODY,
+                             fg=theme.TEXT, bg=bg, cursor="hand2")
+        self.box.pack(side="left")
+        self.text.pack(side="left", padx=(6, 0))
+        self.box.bind("<Button-1>", lambda e: self.toggle())
+        self.text.bind("<Button-1>", lambda e: self.toggle())
+        self._draw()
+
+    def _draw(self):
+        """Paints the box and the check mark when checked."""
+        c = self.box
+        c.delete("all")
+        outline = theme.PRIMARY if self.checked else theme.BORDER_STRONG
+        fill = theme.PRIMARY if self.checked else theme.BG_SURFACE
+        rounded_rectangle(c, 1, 1, 17, 17, 4, fill=fill, outline=outline)
+        if self.checked:
+            c.create_text(9, 9, text="\u2713", font=theme.FONT_TINY,
+                          fill=theme.TEXT_ON_DARK)
+
+    def toggle(self):
+        """Flips the checkbox and repaints."""
+        self.checked = not self.checked
+        self._draw()
+
+    def get(self):
+        """Returns True when the box is checked."""
+        return self.checked
+
+    def set(self, value):
+        """Sets the checkbox state directly."""
+        self.checked = bool(value)
+        self._draw()
+
+
+# ---------------------------------------------------------------------------
+# ACCORDION (a question row that expands/collapses, used by the Help page)
+# ---------------------------------------------------------------------------
+class Accordion(tk.Frame):
+    """One FAQ row: clicking the question shows or hides the answer."""
+    def __init__(self, master, question, answer, bg=theme.BG_SURFACE):
+        super().__init__(master, bg=bg)
+        self._bg = bg
+        self.answer_data = answer
+        self._open = False
+        self.header = tk.Frame(self, bg=bg, cursor="hand2")
+        self.header.pack(fill="x")
+        self.q_text = tk.Label(self.header, text=question,
+                               font=theme.FONT_BODY_BOLD, fg=theme.TEXT, bg=bg,
+                               anchor="w")
+        self.q_text.pack(side="left", fill="x", expand=True)
+        self.arrow = tk.Label(self.header, text="v", font=theme.FONT_SMALL_BOLD,
+                              fg=theme.TEXT_MUTED, bg=bg)
+        self.arrow.pack(side="right", padx=10)
+        self.body = None
+        for widget in (self.header, self.q_text, self.arrow):
+            widget.bind("<Button-1>", lambda e: self.toggle())
+        self.header.bind("<Enter>", lambda e: self.header.configure(
+            bg=theme.BG_HOVER) or self.q_text.configure(bg=theme.BG_HOVER))
+        self.header.bind("<Leave>", lambda e: self.header.configure(
+            bg=self._bg) or self.q_text.configure(bg=self._bg))
+
+    def toggle(self):
+        """Opens or closes the answer area."""
+        if self._open:
+            self.body.destroy()
+            self.body = None
+            self.arrow.configure(text="v")
+            self._open = False
+        else:
+            self.body = tk.Frame(self, bg=self._bg)
+            self.body.pack(fill="x")
+            tk.Label(self.body, text=self.answer_text(), font=theme.FONT_SMALL,
+                     fg=theme.TEXT_MUTED, bg=self._bg, wraplength=620,
+                     justify="left").pack(anchor="w", padx=(24, 10),
+                                          pady=(0, 10))
+            self.arrow.configure(text="^")
+            self._open = True
+
+    def answer_text(self):
+        """Returns the stored answer text."""
+        return self.answer_data if isinstance(self.answer_data, str) else ""
+
+
+# ---------------------------------------------------------------------------
 # EMPTY STATE
 # ---------------------------------------------------------------------------
 class EmptyState(tk.Frame):
@@ -804,8 +916,23 @@ class EmptyState(tk.Frame):
 # TOAST (small message that appears bottom-right and fades)
 # ---------------------------------------------------------------------------
 class Toast:
-    """Shows a short-lived message. Use Toast.show(root, message, kind)."""
+    """
+    Shows a short-lived message near the bottom right of the window.
+    Two calling styles: Toast.show(root, message, kind="success") or the
+    shortcut Toast(master, message, variant="ok"/"error"/"info").
+    """
     _active = None
+    _KINDS = {"ok": "success", "info": "success", "error": "error"}
+
+    def __init__(self, master=None, message="", variant="ok"):
+        # (comment: screens can say Toast(self, "...") instead of Toast.show)
+        root = master.winfo_toplevel() if master is not None else None
+        kind = Toast._KINDS.get(variant, "success")
+        if root is not None:
+            Toast.show(root, message, kind=kind)
+        else:
+            root = tk._get_default_root()
+            Toast.show(root, message, kind=kind)
 
     @staticmethod
     def show(root, message, kind="success"):
@@ -816,7 +943,8 @@ class Toast:
             except Exception:
                 pass
 
-        color = theme.PRIMARY if kind == "success" else theme.DANGER
+        color = theme.PRIMARY if kind == "success" else (
+            theme.ACCENT if kind == "info" else theme.DANGER)
         top = tk.Toplevel(root)
         Toast._active = top
         top.overrideredirect(True)
@@ -950,158 +1078,3 @@ def open_dialog(parent, title, width, height, build, on_close=None):
 
 
 # ---------------------------------------------------------------------------
-# MAP PICKER (soft zones, pin with shadow, legend)
-# ---------------------------------------------------------------------------
-class MapPicker(tk.Frame):
-    """A Canvas service-area map with a clickable pin and a zone legend."""
-    def __init__(self, master, width=460, height=270, read_only=False,
-                 on_select=None, bg=None):
-        bg = bg or bg_of(master)
-        super().__init__(master, bg=bg)
-        self._bg = bg
-        self.read_only = read_only
-        self.on_select = on_select
-        self.selected_zone = None
-        self.pin_x = None
-        self.pin_y = None
-        self.zone_items = {}
-        self.zone_fees = self._load_zone_fees()
-
-        self.canvas = tk.Canvas(self, width=width, height=height, bg=theme.MAP_BG,
-                                highlightthickness=1, highlightbackground=theme.BORDER,
-                                bd=0)
-        self.canvas.pack()
-        self._draw_zones()
-
-        if not self.read_only:
-            self.canvas.bind("<Button-1>", self._on_click)
-            self.canvas.bind("<Motion>", self._on_motion)
-
-        self._build_legend()
-
-    def _load_zone_fees(self):
-        """Reads current travel fees from the database (with a fallback)."""
-        fees = {}
-        try:
-            import database
-            for row in database.get_zones():
-                fees[row["code"]] = row["travel_fee"]
-        except Exception:
-            pass
-        for zone in config.SERVICE_ZONES:
-            if zone["code"] not in fees:
-                fees[zone["code"]] = zone["travel_fee"]
-        return fees
-
-    def _draw_zones(self):
-        """Draws each service zone with its name and travel fee."""
-        for zone in config.SERVICE_ZONES:
-            x1, y1, x2, y2 = zone["rect"]
-            rect_id = self.canvas.create_rectangle(
-                x1, y1, x2, y2, fill=theme.MAP_ZONE_FILL,
-                outline=theme.MAP_ZONE_BORDER, width=1)
-            self.zone_items[zone["code"]] = rect_id
-            cx = (x1 + x2) // 2
-            cy = (y1 + y2) // 2
-            self.canvas.create_text(cx, cy - 10, text=zone["name"],
-                                    font=theme.FONT_BODY_BOLD, fill=theme.TEXT)
-            fee = self.zone_fees.get(zone["code"], zone["travel_fee"])
-            self.canvas.create_text(cx, cy + 10, text="Travel fee ₱" + str(fee),
-                                    font=theme.FONT_TINY, fill=theme.TEXT_MUTED)
-
-    def _build_legend(self):
-        """Shows a small legend of zones and fees under the map."""
-        legend = tk.Frame(self, bg=self._bg)
-        legend.pack(fill="x", pady=(6, 0))
-        for zone in config.SERVICE_ZONES:
-            fee = self.zone_fees.get(zone["code"], zone["travel_fee"])
-            item = tk.Frame(legend, bg=self._bg)
-            item.pack(side="left", padx=(0, 14))
-            swatch = tk.Canvas(item, width=10, height=10, bg=self._bg,
-                               highlightthickness=0, bd=0)
-            swatch.create_oval(1, 1, 9, 9, fill=theme.ACCENT, outline=theme.ACCENT)
-            swatch.pack(side="left")
-            tk.Label(item, text=" " + zone["name"] + " (₱" + str(fee) + ")",
-                     font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
-                     bg=self._bg).pack(side="left")
-
-    def _zone_at(self, x, y):
-        """Returns the zone that contains point (x, y) or None."""
-        for zone in config.SERVICE_ZONES:
-            x1, y1, x2, y2 = zone["rect"]
-            if x1 <= x <= x2 and y1 <= y <= y2:
-                return zone
-        return None
-
-    def _on_motion(self, event):
-        """Highlights the zone under the mouse."""
-        zone = self._zone_at(event.x, event.y)
-        for code, rect_id in self.zone_items.items():
-            if zone is not None and code == zone["code"]:
-                fill = (theme.MAP_ZONE_SELECTED
-                        if self.selected_zone and self.selected_zone["code"] == code
-                        else theme.MAP_ZONE_HOVER)
-            else:
-                fill = (theme.MAP_ZONE_SELECTED
-                        if self.selected_zone and code == self.selected_zone["code"]
-                        else theme.MAP_ZONE_FILL)
-            self.canvas.itemconfig(rect_id, fill=fill)
-
-    def _on_click(self, event):
-        """Drops a pin inside the clicked zone."""
-        zone = self._zone_at(event.x, event.y)
-        if zone is None:
-            return
-        self.set_pin(event.x, event.y, zone["code"])
-        if self.on_select:
-            self.on_select(zone, self.zone_fees.get(zone["code"], zone["travel_fee"]))
-
-    def _draw_pin(self, x, y):
-        """Draws the pin with a soft shadow."""
-        self.canvas.delete("pin")
-        self.canvas.create_oval(x - 8, y - 4, x + 8, y + 6, fill=theme.MAP_BG,
-                                outline="", tags="pin")
-        self.canvas.create_line(x, y, x, y - 26, fill=theme.MAP_PIN, width=2,
-                                tags="pin")
-        self.canvas.create_oval(x - 7, y - 34, x + 7, y - 20, fill=theme.MAP_PIN,
-                                outline=theme.BG_SURFACE, width=2, tags="pin")
-
-    def set_pin(self, x, y, zone_code):
-        """Places the pin and stores the matching zone."""
-        zone = None
-        for item in config.SERVICE_ZONES:
-            if item["code"] == zone_code:
-                zone = item
-                break
-        self.selected_zone = zone
-        self.pin_x = x
-        self.pin_y = y
-        self._on_motion_at(x, y)
-        self.canvas.delete("pin")
-        self.canvas.create_line(x, y, x, y - 26, fill=theme.MAP_PIN, width=2,
-                                tags="pin")
-        self.canvas.create_oval(x - 8, y - 34, x + 8, y - 18, fill=theme.MAP_PIN,
-                                outline=theme.TEXT_ON_DARK, width=2, tags="pin")
-
-    def _on_motion_at(self, x, y):
-        """Repaints zone fills after a programmatic pin set."""
-        for code, rect_id in self.zone_items.items():
-            if self.selected_zone and code == self.selected_zone["code"]:
-                self.canvas.itemconfig(rect_id, fill=theme.MAP_ZONE_SELECTED)
-            else:
-                self.canvas.itemconfig(rect_id, fill=theme.MAP_ZONE_FILL)
-
-    def clear_pin(self):
-        """Removes the pin and clears the selection."""
-        self.canvas.delete("pin")
-        self.selected_zone = None
-        self.pin_x = None
-        self.pin_y = None
-        for rect_id in self.zone_items.values():
-            self.canvas.itemconfig(rect_id, fill=theme.MAP_ZONE_FILL)
-
-    def get_selection(self):
-        """Returns (zone_code, pin_x, pin_y) or (None, None, None)."""
-        if self.selected_zone is None:
-            return (None, None, None)
-        return (self.selected_zone["code"], self.pin_x, self.pin_y)

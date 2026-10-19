@@ -4,8 +4,8 @@ config.py
 Configuration and business rules for AutoGlide Mobile Detailing.
 
 Stores brand details, landing page copy, service packages, vehicle pricing,
-add-ons, service zones (with travel fees), booking rules, and default seed
-data used by database.py.
+add-ons, booking rules, and default seed data used by database.py.
+Travel fees/zones and detailer management were removed from the product.
 =============================================================================
 """
 
@@ -96,53 +96,12 @@ BANNER_CONTENT = {
     "button_text": "Book Now"
 }
 
-# Targeted Add-Ons (used on the New Booking screen)
-ADD_ONS = [
-    {
-        "id": "engine_bay",
-        "name": "Engine bay wipe",
-        "price": 499
-    },
-    {
-        "id": "headlights",
-        "name": "Headlight cleaning",
-        "price": 599
-    },
-    {
-        "id": "cabin_odor",
-        "name": "Cabin deodorizer",
-        "price": 399
-    }
-]
-
-# Service Zones with travel fees. Coordinates (x1, y1, x2, y2) place the zone
-# as a rectangle on the map picker Canvas.
-SERVICE_ZONES = [
-    {
-        "code": "QC",
-        "name": "Quezon City",
-        "travel_fee": 150,
-        "rect": (20, 20, 240, 140)
-    },
-    {
-        "code": "BGC",
-        "name": "BGC / Makati",
-        "travel_fee": 200,
-        "rect": (270, 20, 500, 140)
-    },
-    {
-        "code": "MNL",
-        "name": "Manila",
-        "travel_fee": 250,
-        "rect": (20, 170, 240, 290)
-    },
-    {
-        "code": "SMD",
-        "name": "Parañaque / South",
-        "travel_fee": 300,
-        "rect": (270, 170, 500, 290)
-    }
-]
+# Targeted Add-Ons (used on the New Booking screen), keyed by add-on id
+ADD_ONS = {
+    "engine_bay": {"name": "Engine bay wipe", "price": 499},
+    "headlights": {"name": "Headlight cleaning", "price": 599},
+    "cabin_odor": {"name": "Cabin deodorizer", "price": 399}
+}
 
 # Booking rules
 TIME_SLOTS = ["8:00 AM", "10:00 AM", "12:00 PM", "2:00 PM", "4:00 PM"]
@@ -171,6 +130,15 @@ WIZARD_STEPS = [
     "5 Review"
 ]
 
+# Booking wizard extra copy
+REVIEW_NOTE = ("We will confirm your booking shortly. You pay after the "
+               "service, cash or GCash.")
+
+# Client Home page copy
+HOME_SUBTEXT = "Here is what is coming up for your car."
+HOME_EMPTY_TEXT = ("You have no upcoming booking. Tap Book a Detail and we "
+                   "will come to your home.")
+
 # Default accounts seeded on first run
 DEFAULT_ADMIN = {
     "full_name": "AutoGlide Admin",
@@ -180,13 +148,6 @@ DEFAULT_ADMIN = {
     "password": "admin123",
     "role": "admin"
 }
-
-# Default detailers seeded on first run
-DEFAULT_DETAILERS = [
-    "Marco Reyes",
-    "Dina Santos",
-    "Paolo Cruz"
-]
 
 
 # ---------------------------------------------------------------------------
@@ -208,28 +169,20 @@ def tier_name(tier_id):
     return tier["name"]
 
 
-def zone_by_code(zone_code):
-    """Returns the service zone dictionary for a code."""
-    for zone in SERVICE_ZONES:
-        if zone["code"] == zone_code:
-            return zone
-    return None
-
-
-def zone_name(zone_code):
-    """Returns a zone name for a code, or a dash if there is no code."""
-    zone = zone_by_code(zone_code)
-    if zone is None:
-        return "-"
-    return zone["name"]
+def price_for(tier_id, vehicle_type):
+    """Returns the package price from config for a vehicle type."""
+    tier = tier_by_id(tier_id)
+    if tier is None:
+        return 0
+    return tier["prices"].get(vehicle_type, 0)
 
 
 def addon_name(addon_id):
     """Returns an add-on name for an id, or the id itself if not found."""
-    for addon in ADD_ONS:
-        if addon["id"] == addon_id:
-            return addon["name"]
-    return addon_id
+    info = ADD_ONS.get(addon_id)
+    if info is None:
+        return addon_id
+    return info["name"]
 
 
 def addons_text(addons):
@@ -238,5 +191,21 @@ def addons_text(addons):
         return "None"
     names = []
     for addon_id in addons.split(","):
-        names.append(addon_name(addon_id))
+        names.append(addon_name(addon_id.strip()))
     return ", ".join(names)
+
+
+def friendly_date(date_text):
+    """Turns 'YYYY-MM-DD' into 'Mon, Oct 19, 2026' for the GUI."""
+    import datetime
+    try:
+        date_value = datetime.date.fromisoformat(str(date_text))
+    except (TypeError, ValueError):
+        return str(date_text or "")
+    return date_value.strftime("%a, %b %d, %Y")
+
+
+def slot_note():
+    """One-line note about slots shown beside the schedule picker."""
+    return ("Each slot takes up to " + str(SLOT_CAPACITY) + " cars per day. "
+            "Grey slots are already full.")

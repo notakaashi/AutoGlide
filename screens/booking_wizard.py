@@ -1,467 +1,784 @@
 """
 screens/booking_wizard.py
 =============================================================================
-New Booking wizard (5 steps).
+The New Booking wizard: five short steps.
 
-Steps: 1 Vehicle, 2 Package, 3 Schedule, 4 Location, 5 Review.
-Each step validates before moving on. Prices come from the database so admin
-edits apply to new bookings. On confirm the booking is saved as Pending and
-the client is taken to My Bookings.
+1 Vehicle   - pick a saved vehicle or type a new one (with a save checkbox)
+2 Package   - package cards plus add-on chips, live price
+3 Schedule  - date picker (slots grey out when full, capacity in config)
+4 Location  - pick a saved address or type a new one (with a save checkbox)
+5 Review    - summary; Book Now writes a Pending booking
+
+The student note: prices come from config.price_for(), never from the DB,
+so what the client sees always matches config.py.
 =============================================================================
 """
 
-import tkinter as tk
 import datetime
+import tkinter as tk
+
 import theme
 import config
 import database
 import validators
-from components import (Card, SectionHeading, Button, SegmentedControl, Chip,
-                        EntryField, DateField, MapPicker, Toast)
+
+from components import (Card, Button, DateField, Chip, Toast, EntryField,
+                        CheckField)
 
 
 class BookingWizard(tk.Frame):
-    """A five-step wizard that creates a booking."""
-    def __init__(self, master, app):
-        self.app = app
+    """The five-step booking flow that saves the draft into main.session."""
+    STEPS = ["Vehicle", "Package", "Schedule", "Location", "Review"]
+
+    def __init__(self, master, shell):
+        self.shell = shell
+        self.app = shell.app
+        self.user = shell.current_user
         super().__init__(master, bg=theme.BG_APP)
+        self._dots = []
+        self._vehicle_rows = []
+        self._address_rows = []
+        self._price_labels = []
+        self._addon_chips = {}
+        self._slot_chips = {}
+        self._saved_vehicle_check = None
+        self._saved_address_check = None
+        self._refresh_job = None
         self.pack(fill="both", expand=True)
 
-        self.step = 1
-        self.vehicle_type = self.app.booking_draft.get("vehicle_type", "Sedan")
-        self.tier_id = self.app.booking_draft.get("tier_id", "wash_vacuum")
-        self.addons = []
-        self.booking_date = ""
-        self.time_slot = ""
-        self.address = ""
-        self.zone_code = None
-        self.travel_fee = 0
-        self.pin_x = None
-        self.pin_y = None
+        self._draft = self.app.booking_draft
+        self._draft.setdefault("vehicle_type", "Sedan")
+        self._draft.setdefault("tier_id", "wash_vacuum")
+        self._draft.setdefault("addons", [])
+        self._draft.setdefault("place", {})
+        self._load_fresh_draft()
 
-        self._dots = []
-        self._price_labels = {}
-        self._addon_chips = {}
-        self._slot_chips = {}
-        self._build_progress()
-        self._build_content()
-        self._show_step()
+        self.card = Card(self, radius=theme.RADIUS_LG, pad=theme.PAD_LG)
+        self.card.pack(fill="both", expand=True, padx=theme.PAD_LG,
+                       pady=theme.PAD_LG)
+        self.body = self.card.body
+        self._build_header()
+        self._build_body()
+        self.render_step()
+
+    def _load_fresh_draft(self):
+        """Starts clean; prefills the picked package from the landing page."""
+        tier_id = self._draft.pop("picked_tier", None)
+        if tier_id:
+            self._draft["tier_id"] = tier_id
+        self._draft["vehicle_type"] = "Sedan"
+        self._draft["addons"] = []
+        self._draft["place"] = {}
+        self._saved_vehicles = database.get_saved_vehicles(self.user["id"])
+        self._saved_addresses = database.get_saved_addresses(self.user["id"])
+        self._draft["vehicle"] = None
+        self._draft["address"] = None
+        self._draft["booking_date"] = None
+        self._draft["time_slot"] = None
 
     # ------------------------------------------------------------------
-    # PROGRESS BAR
+    # HEADER (steps display + dots)
     # ------------------------------------------------------------------
-    def _build_progress(self):
-        """Builds the step progress indicator."""
-        card = Card(self, pad=theme.PAD_SM)
-        card.pack(fill="x", padx=theme.PAD_LG, pady=(theme.PAD_MD, 0))
-        row = tk.Frame(card.body, bg=theme.BG_SURFACE)
-        row.pack(fill="x")
-        for label in config.WIZARD_STEPS:
-            cell = tk.Frame(row, bg=theme.BG_SURFACE)
-            cell.pack(side="left", fill="x", expand=True, padx=4)
-            dot = tk.Canvas(cell, width=30, height=30, bg=theme.BG_SURFACE,
-                            highlightthickness=0, bd=0)
-            dot.pack(anchor="center")
-            text = tk.Label(cell, text=label, font=theme.FONT_TINY,
-                            fg=theme.TEXT_FAINT, bg=theme.BG_SURFACE)
-            text.pack(anchor="center")
-            self._dots.append((dot, text))
-        self._update_progress()
+    def _build_header(self):
+        """Small caption with the clinic-style step dots."""
+        top = tk.Frame(self.body, bg=theme.BG_SURFACE)
+        top.pack(fill="x")
+        left = tk.Frame(top, bg=theme.BG_SURFACE)
+        left.pack(side="left")
+        tk.Label(left, text="New Booking", font=theme.FONT_SECTION,
+                 fg=theme.TEXT, bg=theme.BG_SURFACE).pack(anchor="w")
+        self._step_label = tk.Label(left, text="", font=theme.FONT_TINY,
+                                    fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE)
+        self._step_label.pack(anchor="w")
+        dots = tk.Frame(top, bg=theme.BG_SURFACE)
+        dots.pack(side="right")
+        for i in range(5):
+            dot = tk.Canvas(dots, width=16, height=16, bg=theme.BG_SURFACE,
+                            highlightthickness=0)
+            dot.pack(side="left", padx=2)
+            self._dots.append(dot)
 
-    def _update_progress(self):
-        """Repaints each step dot for done, current, and upcoming states."""
-        for index, (dot, text) in enumerate(self._dots, start=1):
+    def _paint_dots(self, step):
+        """Paints one dot per step - big and filled when reached."""
+        for i, dot in enumerate(self._dots):
             dot.delete("all")
-            if index < self.step:
-                dot.create_oval(3, 3, 27, 27, fill=theme.PRIMARY,
-                                outline=theme.PRIMARY)
-                dot.create_text(15, 15, text="\u2713", font=theme.FONT_SMALL_BOLD,
-                                fill=theme.TEXT_ON_DARK)
-                text.configure(fg=theme.TEXT_MUTED)
-            elif index == self.step:
-                dot.create_oval(3, 3, 27, 27, fill=theme.ACCENT_SOFT,
+            done = i <= step
+            color = theme.PRIMARY if done else theme.BG_SOFT
+            size = 9 if i == step else 6
+            off = (16 - size) // 2
+            dot.create_oval(off, off, off + size, off + size,
+                            fill=color, outline=color)
+            if i == step:
+                dot.create_oval(off, off, off + size, off + size,
                                 outline=theme.PRIMARY, width=2)
-                dot.create_text(15, 15, text=str(index),
-                                font=theme.FONT_BODY_BOLD, fill=theme.PRIMARY)
-                text.configure(fg=theme.PRIMARY, font=theme.FONT_TINY)
-            else:
-                dot.create_oval(3, 3, 27, 27, fill=theme.BG_SURFACE,
-                                outline=theme.BORDER)
-                dot.create_text(15, 15, text=str(index),
-                                font=theme.FONT_BODY, fill=theme.TEXT_FAINT)
-                text.configure(fg=theme.TEXT_FAINT)
 
     # ------------------------------------------------------------------
-    # SHELL
+    # BODY + FOOTER
     # ------------------------------------------------------------------
-    def _build_content(self):
-        """Creates the content area for the current step."""
-        self.content = tk.Frame(self, bg=theme.BG_APP)
-        self.content.pack(fill="both", expand=True, padx=theme.PAD_LG,
-                          pady=theme.PAD_MD)
+    def _build_body(self):
+        """One plain frame per step that gets rebuilt on demand."""
+        self._step_frame = tk.Frame(self.body, bg=theme.BG_SURFACE)
+        self._step_frame.pack(fill="both", expand=True,
+                              pady=(theme.PAD_MD, 0))
 
-    def _clear(self):
-        """Destroys the current step's widgets."""
-        for child in self.content.winfo_children():
-            child.destroy()
+    def _build_footer(self, step):
+        """Back / Continue buttons under the step content."""
+        foot = tk.Frame(self.body, bg=theme.BG_SURFACE)
+        foot.pack(fill="x", side="bottom", pady=(theme.PAD_MD, 0))
+        if step > 0:
+            Button(foot, text="Back",
+                   command=lambda: self._go(step - 1),
+                   variant="ghost").pack(side="right", padx=(8, 0))
+        if step < 4:
+            Button(foot, text="Continue",
+                   command=lambda: self._go(step + 1),
+                   variant="primary").pack(side="right")
+        else:
+            Button(foot, text="Book it",
+                   command=self._confirm, variant="primary").pack(side="right")
 
-    def _show_step(self):
-        """Renders the current step."""
-        self._clear()
-        builders = {1: self._step_vehicle, 2: self._step_package,
-                    3: self._step_schedule, 4: self._step_location,
-                    5: self._step_review}
-        builders[self.step]()
-        self._update_progress()
+    def render_step(self):
+        """Shows the current step inside the card."""
+        step = self._draft.get("step", 0)
+        self._step_label.configure(
+            text="Booking steps - step " + str(step + 1) + " of 5: "
+            + self.STEPS[step])
+        self._paint_dots(step)
+        self._slot_chips = {}
+        self._addon_chips = {}
+        self._slot_frame = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        self._slot_frame.pack(fill="x")
+        {
+            0: self._step_vehicle,
+            1: self._step_package,
+            2: self._step_schedule,
+            3: self._step_location,
+            4: self._step_review,
+        }[step]()
+        self._build_footer(step)
 
-    def _nav_buttons(self, body, next_text="Next"):
-        """Adds Back and Next buttons at the bottom of a step."""
-        nav = tk.Frame(body, bg=theme.BG_SURFACE)
-        nav.pack(fill="x", pady=(theme.PAD_LG, 0))
-        if self.step > 1:
-            Button(nav, text="Back", command=self._back,
-                   variant="ghost").pack(side="left")
-        Button(nav, text=next_text, command=self._next,
-               variant="primary").pack(side="right")
-        return nav
+    def _clear_step(self):
+        """Removes the step content but keeps the card header."""
+        for wdg in self._step_frame.winfo_children():
+            if wdg is self._slot_frame:
+                continue
+            wdg.destroy()
 
-    def _next(self):
-        """Validates, then advances one step (or confirms on the last)."""
-        if not self._validate():
-            return
-        if self.step == 5:
-            self._confirm()
-            return
-        self.step += 1
-        self._show_step()
-
-    def _back(self):
-        """Moves back one step."""
-        if self.step > 1:
-            self.step -= 1
-            self._show_step()
+    def _go(self, step):
+        """Validates before moving between steps."""
+        current = self._draft.get("step", 0)
+        ok = True
+        if step > current:
+            checks = {
+                0: self._validate_vehicle,
+                1: self._validate_package,
+                2: self._validate_schedule,
+                3: self._validate_location,
+            }.get(current)
+            if checks:
+                ok, message = checks()
+                if not ok:
+                    Toast(self, message, variant="error")
+        if ok:
+            self._draft["step"] = step
+            self.render_step()
 
     # ------------------------------------------------------------------
-    # STEPS
+    # STEP 1 - VEHICLE
     # ------------------------------------------------------------------
     def _step_vehicle(self):
-        """Step 1: choose the vehicle type."""
-        card = Card(self.content)
-        card.pack(fill="both", expand=True)
-        body = card.body
-        SectionHeading(body, title="Step 1 - Vehicle",
-                       subtitle="What are we washing today?").pack(anchor="w")
-        self._vehicle_control = SegmentedControl(
-            body, options=config.VEHICLE_TYPES, value=self.vehicle_type,
-            command=self._on_vehicle)
-        self._vehicle_control.pack(anchor="w", pady=theme.PAD_MD)
-        self._nav_buttons(body)
+        """Choose a saved vehicle or type a new one."""
+        self._clear_step()
+        wrap = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        wrap.pack(fill="x")
+        if self._saved_vehicles:
+            saved = tk.Frame(wrap, bg=theme.BG_SURFACE)
+            saved.pack(fill="x")
+            tk.Label(saved, text="Saved vehicles",
+                     font=theme.FONT_SMALL_BOLD, fg=theme.TEXT_MUTED,
+                     bg=theme.BG_SURFACE).pack(anchor="w",
+                                               pady=(0, theme.PAD_XS))
+            self._vehicle_choice = tk.StringVar(value=""
+                                                if self._draft["vehicle"] is None
+                                                else str(self._draft["vehicle"]["id"]))
+            for v in self._saved_vehicles:
+                item = tk.Frame(saved, bg=theme.BG_SOFT)
+                item.pack(fill="x", pady=3)
+                radio = tk.Radiobutton(item, variable=self._vehicle_choice,
+                                       value=str(v["id"]), command=self._pick_vehicle,
+                                       bg=theme.BG_SOFT, cursor="hand2")
+                radio.pack(side="left", padx=(8, 4))
+                desc = database.vehicle_desc(
+                    v["vehicle_type"], v["make"], v["model"],
+                    v["color"], v["plate"])
+                tk.Label(item, text=desc, font=theme.FONT_BODY,
+                         fg=theme.TEXT, bg=theme.BG_SOFT).pack(
+                             side="left", pady=6)
+                self._vehicle_rows.append(item)
 
-    def _on_vehicle(self, value):
-        """Stores the chosen vehicle type."""
-        self.vehicle_type = value
+        form = Card(self._step_frame, pad=theme.PAD_LG)
+        form.pack(fill="both", expand=True, pady=(theme.PAD_MD, 0))
+        tk.Label(form.body, text="Vehicle details",
+                 font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
+                 bg=theme.BG_SURFACE).pack(anchor="w")
 
+        row = tk.Frame(form.body, bg=theme.BG_SURFACE)
+        row.pack(fill="x", pady=(theme.PAD_SM, 0))
+        self._v_label = EntryField(row, label="Nickname *", width=18,
+                                   placeholder="e.g. Daily car",
+                                   text=self._draft["vehicle"]["label"] if
+                                   self._draft["vehicle"] else "")
+        self._v_label.pack(side="left")
+        self._v_type = tk.StringVar(value=self._draft["vehicle_type"])
+        seg = tk.Frame(row, bg=theme.BG_SURFACE)
+        seg.pack(side="left", padx=(16, 0))
+        for vt in config.VEHICLE_TYPES:
+            b = tk.Radiobutton(seg, text=vt, variable=self._v_type,
+                               value=vt, command=self._pick_vtype,
+                               font=theme.FONT_BODY, bg=theme.BG_SURFACE,
+                               cursor="hand2")
+            b.pack(side="left", padx=(0, 8))
+            self._vehicle_rows.append(b)
+
+        grid = tk.Frame(form.body, bg=theme.BG_SURFACE)
+        grid.pack(fill="x", pady=(theme.PAD_SM, 0))
+        self._v_make = EntryField(grid, width=16, label="Make *",
+                                  placeholder="e.g. Toyota",
+                                  text=self._draft["vehicle"]["make"]
+                                  if self._draft["vehicle"] else "")
+        self._v_make.grid(row=0, column=0, padx=(0, 12), sticky="w")
+        self._v_model = EntryField(grid, width=16, label="Model *",
+                                   text=self._draft["vehicle"]["model"]
+                                   if self._draft["vehicle"] else "")
+        self._v_model.grid(row=0, column=1, padx=(0, 12), sticky="w")
+        self._v_color = EntryField(grid, width=12, label="Color",
+                                   text=self._draft["vehicle"]["color"]
+                                   if self._draft["vehicle"] else "")
+        self._v_color.grid(row=0, column=2, padx=(0, 12), sticky="w")
+        self._v_plate = EntryField(grid, width=12, label="Plate",
+                                   text=self._draft["vehicle"]["plate"]
+                                   if self._draft["vehicle"] else "")
+        self._v_plate.grid(row=0, column=3, sticky="w")
+        tk.Label(form.body,
+                 text="Fields marked * are required.",
+                 font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
+                 bg=theme.BG_SURFACE).pack(anchor="w",
+                                           pady=(theme.PAD_XS, 0))
+        show_check = True
+        if getattr(self, "_vehicle_choice", None) and \
+                self._vehicle_choice.get().isdigit():
+            show_check = False
+        if show_check:
+            self._saved_vehicle_check = CheckField(
+                form.body, "Save this vehicle for next time", bg=theme.BG_SURFACE)
+            self._saved_vehicle_check.pack(anchor="w", pady=(theme.PAD_SM, 0))
+        else:
+            self._saved_vehicle_check = None
+
+    def _pick_vtype(self):
+        """Vehicle type radio changed - update price labels as well."""
+        self._draft["vehicle_type"] = self._v_type.get()
+        self._update_prices()
+
+    def _pick_vehicle(self):
+        """A saved vehicle radio got picked - fills the form with it."""
+        try:
+            vid = int(self._vehicle_choice.get())
+        except ValueError:
+            vid = None
+        vehicle = self._find_vehicle(vid)
+        if vehicle is None:
+            return
+        self._draft["vehicle"] = dict(vehicle)
+        self._v_label.set(vehicle["label"])
+        self._v_type.set(vehicle["vehicle_type"])
+        self._v_make.set(vehicle["make"] or "")
+        self._v_model.set(vehicle["model"] or "")
+        self._v_color.set(vehicle["color"] or "")
+        self._v_plate.set(vehicle["plate"] or "")
+        self._draft["vehicle_type"] = vehicle["vehicle_type"]
+        self._update_prices()
+
+    def _find_vehicle(self, vid):
+        """Looks a saved vehicle up by id."""
+        for v in self._saved_vehicles:
+            if v["id"] == vid:
+                return v
+        return None
+
+    def _validate_vehicle(self):
+        """Reads the form back into the draft; validates it."""
+        data = {
+            "label": self._v_label.get().strip(),
+            "vehicle_type": self._v_type.get(),
+            "make": self._v_make.get().strip(),
+            "model": self._v_model.get().strip(),
+            "color": self._v_color.get().strip(),
+            "plate": self._v_plate.get().strip(),
+        }
+        ok, message = validators.validate_vehicle(
+            data["label"], data["vehicle_type"], data["make"],
+            data["model"], data["color"], data["plate"])
+        if not ok:
+            return (False, message)
+        picked_saved = False
+        if getattr(self, "_vehicle_choice", None) and \
+                self._vehicle_choice.get().isdigit():
+            saved = self._find_vehicle(int(self._vehicle_choice.get()))
+            if saved is not None:
+                picked_saved = True
+                data["id"] = saved["id"]
+                data["label"] = saved["label"]
+                data["vehicle_type"] = saved["vehicle_type"]
+                data["make"] = saved["make"]
+                data["model"] = saved["model"]
+                data["color"] = saved["color"]
+                data["plate"] = saved["plate"]
+        if not picked_saved and self._saved_vehicle_check and \
+                self._saved_vehicle_check.get():
+            database.add_saved_vehicle(
+                self.user["id"], data["label"], data["vehicle_type"],
+                data["make"], data["model"], data["color"], data["plate"])
+        self._draft["vehicle"] = data
+        self._draft["vehicle_type"] = data["vehicle_type"]
+        return (True, "")
+
+    # ------------------------------------------------------------------
+    # STEP 2 - PACKAGE
+    # ------------------------------------------------------------------
     def _step_package(self):
-        """Step 2: pick a package and optional add-ons (DB prices)."""
-        card = Card(self.content)
-        card.pack(fill="both", expand=True)
-        body = card.body
-        SectionHeading(body, title="Step 2 - Package",
-                       subtitle="Prices shown for a " + self.vehicle_type
-                       ).pack(anchor="w")
-
-        self._price_labels = {}
+        """Package cards with live prices + add-on chips."""
+        self._clear_step()
+        head = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        head.pack(fill="x")
+        tk.Label(head, text="For a " + self._draft["vehicle_type"],
+                 font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
+                 bg=theme.BG_SURFACE).pack(anchor="w")
+        row = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        row.pack(fill="x", pady=(theme.PAD_SM, 0))
+        self._tier_cards = []
         for tier in config.SERVICE_TIERS:
-            row = tk.Frame(body, bg=theme.BG_SURFACE)
-            row.pack(fill="x", pady=(theme.PAD_MD, 0))
-            dot = tk.Canvas(row, width=18, height=18, bg=theme.BG_SURFACE,
-                            highlightthickness=0, cursor="hand2")
-            dot.pack(side="left")
-            dot.bind("<Button-1>", lambda e, t=tier["id"]: self._pick_tier(t))
-            dot._tier = tier["id"]
-            row._tier_dot = dot
-            left = tk.Frame(row, bg=theme.BG_SURFACE)
-            left.pack(side="left", fill="x", expand=True, padx=8)
-            name = tier["name"]
-            base_price = database.get_price(tier["id"], self.vehicle_type)
-            head = tk.Frame(left, bg=theme.BG_SURFACE)
-            head.pack(fill="x")
-            tk.Label(head, text=name, font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
-                     bg=theme.BG_SURFACE).pack(side="left")
-            tk.Label(head, text="\u20b1" + str(base_price),
-                     font=theme.FONT_BODY_BOLD,
-                     fg=theme.PRIMARY, bg=theme.BG_SURFACE).pack(side="right")
+            selected = tier["id"] == self._draft["tier_id"]
+            price = config.price_for(tier["id"], self._draft["vehicle_type"])
+            card = Card(row, radius=theme.RADIUS_LG, pad=theme.PAD_LG,
+                        bg=theme.BG_SOFT if selected else theme.BG_SURFACE)
+            card.pack(side="left", fill="both", expand=True,
+                      padx=(0, theme.PAD_SM))
+            card.body.bind("<Button-1>", lambda e, t=tier["id"]: self._pick_tier(t))
+            card.title = tk.Label(card.body, text=tier["name"],
+                                  font=theme.FONT_CARD_TITLE,
+                                  fg=theme.PRIMARY
+                                  if selected else theme.TEXT,
+                                  bg=card.card_bg)
+            card.title.pack(anchor="w")
+            card.price_label = tk.Label(card.body, text="\u20b1" + str(price),
+                                        font=theme.FONT_PRICE,
+                                        fg=theme.TEXT, bg=card.card_bg)
+            card.price_label.pack(anchor="w", pady=(2, theme.PAD_SM))
             for bullet in tier["bullets"]:
-                tk.Label(left, text="- " + bullet, font=theme.FONT_TINY,
-                         fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE
-                         ).pack(anchor="w")
-            row._pick_part = [dot, left, head]
-            for widget in [row, left, head] + list(head.winfo_children()):
-                widget.bind("<Button-1>",
-                            lambda e, t=tier["id"]: self._pick_tier(t))
-                widget.configure(cursor="hand2")
-            self._price_labels[tier["id"]] = dot
-            for child in left.winfo_children():
-                child.bind("<Button-1>",
-                           lambda e, t=tier["id"]: self._pick_tier(t))
-                child.configure(cursor="hand2")
+                tk.Label(card.body, text=bullet, font=theme.FONT_SMALL,
+                         fg=theme.TEXT_MUTED,
+                         bg=card.card_bg).pack(anchor="w")
+            self._tier_cards.append((card, tier["id"]))
 
-        tk.Label(body, text="Add-on services", font=theme.FONT_BODY_BOLD,
-                 fg=theme.TEXT, bg=theme.BG_SURFACE
-                 ).pack(anchor="w", pady=(theme.PAD_LG, 0))
-        chips = tk.Frame(body, bg=theme.BG_SURFACE)
+        addons_row = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        addons_row.pack(fill="x", pady=(theme.PAD_LG, 0))
+        tk.Label(addons_row, text="Add-ons", font=theme.FONT_BODY_BOLD,
+                 fg=theme.TEXT, bg=theme.BG_SURFACE).pack(anchor="w")
+        chips = tk.Frame(addons_row, bg=theme.BG_SURFACE)
         chips.pack(fill="x", pady=(theme.PAD_SM, 0))
-        self._addon_chips = {}
-        for addon in database.get_addons():
-            if not addon["active"]:
-                continue
-            selected = addon["id"] in self.addons
-            chip = Chip(chips,
-                        text=addon["name"] + " \u20b1" + str(addon["price"]),
-                        command=lambda a=addon["id"]: self._toggle_addon(a),
-                        state="selected" if selected else "normal",
-                        bg=theme.BG_SURFACE)
-            chip.pack(side="left", padx=(0, theme.PAD_SM))
-            self._addon_chips[addon["id"]] = chip
-        self._paint_tier_dots()
-        self._nav_buttons(body)
+        for addon_id in sorted(config.ADD_ONS):
+            info = config.ADD_ONS[addon_id]
+            picked = addon_id in self._draft["addons"]
+            chip = Chip(chips, text=info["name"] + "  +" + "\u20b1"
+                        + str(info["price"]),
+                        state="selected" if picked else "normal",
+                        command=lambda a=addon_id: self._toggle_addon(a))
+            chip.pack(side="left", padx=(0, 8))
+            self._addon_chips[addon_id] = chip
+        bar = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        bar.pack(fill="x", pady=(theme.PAD_MD, 0))
+        self._update_prices()
 
     def _pick_tier(self, tier_id):
-        """Selects one package and repaints the radio dots."""
-        self.tier_id = tier_id
-        self._paint_tier_dots()
-
-    def _paint_tier_dots(self):
-        """Repaints package radio dots."""
-        for tier_id, dot in self._price_labels.items():
-            dot.delete("all")
-            selected = (tier_id == self.tier_id)
-            fill = theme.PRIMARY if selected else theme.BG_SURFACE
-            dot.create_oval(2, 2, 16, 16, fill=fill,
-                            outline=theme.PRIMARY if selected else theme.BORDER_STRONG)
-            if selected:
-                dot.create_oval(6, 6, 12, 12, fill=theme.BG_SURFACE,
-                                outline=theme.BG_SURFACE)
+        """Package card clicked - repaint cards and prices."""
+        self._draft["tier_id"] = tier_id
+        for card, tid in self._tier_cards:
+            selected = tid == tier_id
+            card.set_card_bg(theme.BG_SOFT if selected else theme.BG_SURFACE)
+            card.title.configure(fg=theme.PRIMARY if selected else theme.TEXT,
+                                 bg=card.card_bg)
+            card.price_label.configure(bg=card.card_bg)
+        self._update_prices()
 
     def _toggle_addon(self, addon_id):
-        """Adds or removes an add-on selection."""
-        if addon_id in self.addons:
-            self.addons.remove(addon_id)
-            self._addon_chips[addon_id].state = "normal"
+        """Adds or removes an add-on chip click."""
+        addons = self._draft["addons"]
+        if addon_id in addons:
+            addons.remove(addon_id)
         else:
-            self.addons.append(addon_id)
-            self._addon_chips[addon_id].state = "selected"
-        self._addon_chips[addon_id]._draw()
+            addons.append(addon_id)
+        chip = self._addon_chips.get(addon_id)
+        if chip:
+            chip.set_state("selected" if addon_id in addons else "normal")
+        self._update_prices()
 
+    def _update_prices(self):
+        """Recalculates the lines shown on the price bar."""
+        base = config.price_for(self._draft["tier_id"],
+                                self._draft["vehicle_type"])
+        addon_total = 0
+        for addon_id in self._draft["addons"]:
+            addon_total = addon_total + config.ADD_ONS[addon_id]["price"]
+        line = ("Base price   \u20b1" + str(base)
+                + "        Add-ons   \u20b1" + str(addon_total)
+                + "        Estimated total   \u20b1" + str(base + addon_total))
+        if not self._price_labels:
+            label = tk.Label(self._step_frame, font=theme.FONT_BODY_BOLD,
+                             fg=theme.PRIMARY, bg=theme.BG_SURFACE)
+            label.pack(anchor="e")
+            self._price_labels.append(label)
+        self._price_labels[0].configure(text=line)
+
+    def _validate_package(self):
+        """Package always has a valid value - nothing to check."""
+        return (True, "")
+
+    # ------------------------------------------------------------------
+    # STEP 3 - SCHEDULE
+    # ------------------------------------------------------------------
     def _step_schedule(self):
-        """Step 3: date and time slot."""
-        card = Card(self.content)
-        card.pack(fill="both", expand=True)
-        body = card.body
-        SectionHeading(body, title="Step 3 - Schedule",
-                       subtitle="When should we come over?").pack(anchor="w")
-        self._date_field = DateField(body, label="Date", value=self.booking_date)
-        self._date_field.pack(fill="x", pady=(theme.PAD_MD, 0))
+        """Date picker plus time-slot chips (full ones disabled)."""
+        self._clear_step()
+        left = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        left.pack(side="left", pady=(theme.PAD_MD, 0))
+        tk.Label(left, text="Pick a date", font=theme.FONT_BODY_BOLD,
+                 fg=theme.TEXT, bg=theme.BG_SURFACE).pack(anchor="w")
+        initial = self._draft.get("booking_date")
+        self._date_field = DateField(left, value=initial,
+                                     on_change=self._paint_slots)
+        self._date_field.pack(anchor="w", pady=(theme.PAD_SM, 0))
+        tk.Label(self._step_frame,
+                 text="We can start as early as tomorrow, up to "
+                 + str(config.MAX_ADVANCE_DAYS) + " days ahead.",
+                 font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
+                 bg=theme.BG_SURFACE).pack(anchor="w", pady=(theme.PAD_XS, 0))
 
-        tk.Label(body, text="Available time slots", font=theme.FONT_BODY_BOLD,
-                 fg=theme.TEXT, bg=theme.BG_SURFACE
-                 ).pack(anchor="w", pady=(theme.PAD_LG, 0))
-        self._slot_chips = {}
-        chips = tk.Frame(body, bg=theme.BG_SURFACE)
-        chips.pack(fill="x", pady=(theme.PAD_SM, 0))
-        date_for_slots = self.booking_date or datetime.date.today().strftime("%Y-%m-%d")
+        right = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        right.pack(side="right", padx=(theme.PAD_XL, 0),
+                   pady=(theme.PAD_MD, 0))
+        tk.Label(right, text="Pick a time", font=theme.FONT_BODY_BOLD,
+                 fg=theme.TEXT, bg=theme.BG_SURFACE).pack(anchor="w")
+        self._slot_grid = tk.Frame(right, bg=theme.BG_SURFACE)
+        self._slot_grid.pack(anchor="w", pady=(theme.PAD_SM, 0))
+        self._paint_slots()
+        tk.Label(self._step_frame,
+                 text=config.slot_note(),
+                 font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
+                 bg=theme.BG_SURFACE).pack(anchor="w",
+                                           pady=(theme.PAD_SM, 0))
+
+    def _paint_slots(self):
+        """Builds the time-slot chips; full slots are disabled."""
+        date_text = self._date_field.get()
+        current = self._draft.get("time_slot")
         for slot in config.TIME_SLOTS:
-            booked = database.count_slot_bookings(date_for_slots, slot)
-            state = "normal"
-            if booked >= config.SLOT_CAPACITY:
+            full = False
+            if date_text:
+                full = database.count_slot_bookings(date_text, slot) >= \
+                    config.SLOT_CAPACITY
+            if full:
                 state = "full"
-            elif slot in self._chosen_slot():
+            elif slot == current:
                 state = "selected"
-            chip = Chip(chips, text=slot,
-                        command=lambda s=slot: self._pick_slot(s),
-                        state=state, bg=theme.BG_SURFACE)
-            chip.pack(side="left", padx=(0, theme.PAD_SM))
+            else:
+                state = "normal"
+            chip = Chip(self._slot_grid, text=slot, state=state,
+                        command=lambda s=slot: self._pick_slot(s))
+            chip.pack(side="left", padx=(0, 8), pady=2)
             self._slot_chips[slot] = chip
-        self._paint_slot_chips()
-        self._nav_buttons(body)
-
-    def _chosen_slot(self):
-        """Returns the saved slot so chips can be preselected."""
-        return [self.time_slot] if self.time_slot else []
-
-    def _paint_slot_chips(self):
-        """Repaints time slot chips in their saved states."""
-        for slot, chip in self._slot_chips.items():
-            if self.time_slot and slot == self.time_slot:
-                chip.state = "selected"
-            chip._draw()
 
     def _pick_slot(self, slot):
-        """Stores the chosen time slot."""
-        self.time_slot = slot
-        self._paint_slot_chips()
+        """A time chip was clicked; repaint selection."""
+        self._draft["time_slot"] = slot
+        for s, chip in self._slot_chips.items():
+            if chip.state == "full":
+                continue
+            chip.set_state("selected" if s == slot else "normal")
 
+    def _validate_schedule(self):
+        """Date + slot both required; date must be within the allowed range."""
+        date_text = self._date_field.get()
+        ok, message = validators.validate_date(date_text)
+        if not ok:
+            return (False, message)
+        today = datetime.date.today()
+        chosen = datetime.date.fromisoformat(date_text)
+        if chosen < today + datetime.timedelta(days=1):
+            return (False, "Pick tomorrow or later.")
+        if chosen > today + datetime.timedelta(days=config.MAX_ADVANCE_DAYS):
+            return (False, "Pick a date within " + str(config.MAX_ADVANCE_DAYS)
+                    + " days.")
+        slot = self._draft.get("time_slot")
+        if slot:
+            if database.count_slot_bookings(date_text, slot) >= \
+                    config.SLOT_CAPACITY:
+                return (False, "That time slot is already full.")
+        if not slot:
+            return (False, "Please pick a time slot.")
+        self._draft["booking_date"] = date_text
+        self._draft["time_slot"] = slot
+        return (True, "")
+
+    # ------------------------------------------------------------------
+    # STEP 4 - LOCATION
+    # ------------------------------------------------------------------
     def _step_location(self):
-        """Step 4: address and service-zone map with pin."""
-        card = Card(self.content)
-        card.pack(fill="both", expand=True)
-        body = card.body
-        SectionHeading(body, title="Step 4 - Location",
-                       subtitle="Where should our detailers arrive?").pack(anchor="w")
-        self._address_field = EntryField(body, label="Service address",
-                                         placeholder="123 Main St, Barangay",
-                                         width=40)
-        self._address_field.pack(fill="x", pady=(theme.PAD_MD, 0))
-        if self.address:
-            self._address_field.set(self.address)
-        map_holder = tk.Frame(body, bg=theme.BG_SURFACE)
-        map_holder.pack(pady=(theme.PAD_MD, 0))
-        self._map = MapPicker(map_holder, read_only=False,
-                              on_select=self._on_zone_pick)
-        self._map.pack()
-        self._zone_label = tk.Label(body, text=self._zone_text(),
-                                    font=theme.FONT_SMALL,
-                                    fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE)
-        self._zone_label.pack(anchor="w", pady=(theme.PAD_SM, 0))
-        self._nav_buttons(body)
+        """Saved address radios or a new address form + save checkbox."""
+        self._clear_step()
+        preamble = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        preamble.pack(fill="x", pady=(theme.PAD_SM, 0))
+        tk.Label(preamble, text="We come to you. "
+                 "Tell us where to find the car.",
+                 font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
+                 bg=theme.BG_SURFACE).pack(anchor="w")
+        if self._saved_addresses:
+            saved = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+            saved.pack(fill="x", pady=(theme.PAD_SM, 0))
+            tk.Label(saved, text="Saved addresses",
+                     font=theme.FONT_SMALL_BOLD, fg=theme.TEXT_MUTED,
+                     bg=theme.BG_SURFACE).pack(anchor="w",
+                                               pady=(0, theme.PAD_XS))
+            default_pick = self._saved_addresses[0]["id"]
+            chosen = self._draft.get("address")
+            if chosen and chosen.get("saved_id"):
+                default_pick = chosen["saved_id"]
+            self._address_choice = tk.StringVar(value=str(default_pick))
+            for a in self._saved_addresses:
+                lines = " - ".join(database.address_lines(
+                    a["address"], a["barangay"], a["city"], a["landmark"]))
+                item = tk.Frame(saved, bg=theme.BG_SOFT)
+                item.pack(fill="x", pady=3)
+                radio = tk.Radiobutton(item, variable=self._address_choice,
+                                       value=str(a["id"]),
+                                       command=self._pick_address,
+                                       bg=theme.BG_SOFT, cursor="hand2")
+                radio.pack(side="left", padx=(8, 4))
+                tk.Label(item, text=(a["label"] + " - " + lines),
+                         font=theme.FONT_BODY, fg=theme.TEXT,
+                         bg=theme.BG_SOFT).pack(side="left", pady=6)
+                self._address_rows.append(item)
 
-    def _zone_text(self):
-        """Shows the picked zone and travel fee under the map."""
-        if not self.zone_code:
-            return "Pick a service zone on the map."
-        name = config.zone_name(self.zone_code)
-        return name + " - travel fee \u20b1" + str(self.travel_fee)
+        form = Card(self._step_frame, pad=theme.PAD_LG)
+        form.pack(fill="both", expand=True, pady=(theme.PAD_MD, 0))
+        head = tk.Frame(form.body, bg=theme.BG_SURFACE)
+        head.pack(fill="x")
+        tk.Label(head, text="Address details", font=theme.FONT_BODY_BOLD,
+                 fg=theme.TEXT, bg=theme.BG_SURFACE).pack(side="left")
+        tk.Label(head, text="  (*. required)", font=theme.FONT_TINY,
+                 fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE).pack(side="left")
 
-    def _on_zone_pick(self, zone, fee):
-        """Stores zone and travel fee from the map click."""
-        self.zone_code = zone["code"]
-        self.travel_fee = fee
-        coords = self._map.get_selection()
-        self.pin_x, self.pin_y = coords[1], coords[2]
-        self._zone_label.configure(text=self._zone_text())
+        grid = tk.Frame(form.body, bg=theme.BG_SURFACE)
+        grid.pack(fill="x", pady=(theme.PAD_SM, 0))
+        chosen = self._draft.get("address") or {}
+        self._a_label = EntryField(grid, width=16, label="Label *",
+                                   placeholder="Home / Office",
+                                   text=chosen.get("label", ""))
+        self._a_label.grid(row=0, column=0, sticky="w", padx=(0, 12))
+        self._a_street = EntryField(grid, width=24, label="Street address *",
+                                    placeholder="House number and street",
+                                    text=chosen.get("address", ""))
+        self._a_street.grid(row=0, column=1, sticky="w")
+        self._a_barangay = EntryField(grid, width=14, label="Barangay *",
+                                      text=chosen.get("barangay", ""))
+        self._a_barangay.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        self._a_city = EntryField(grid, width=14, label="City *",
+                                  text=chosen.get("city", ""))
+        self._a_city.grid(row=1, column=1, sticky="w", pady=(6, 0))
+        self._a_landmark = EntryField(grid, width=30, label="Landmark",
+                                      placeholder="e.g. beside the bakery",
+                                      text=chosen.get("landmark", ""))
+        self._a_landmark.grid(row=2, column=0, columnspan=2, sticky="w",
+                              pady=(6, 0))
+        if getattr(self, "_address_choice", None) and \
+                self._address_choice.get().isdigit():
+            self._saved_address_check = None
+        else:
+            self._saved_address_check = CheckField(
+                form.body, "Save this address for next time",
+                bg=theme.BG_SURFACE)
+            self._saved_address_check.pack(anchor="w", pady=(theme.PAD_SM, 0))
 
+    def _pick_address(self):
+        """A saved address radio got picked - fill the address form."""
+        try:
+            aid = int(self._address_choice.get())
+        except ValueError:
+            aid = None
+        for a in self._saved_addresses:
+            if a["id"] == aid:
+                data = {
+                    "saved_id": a["id"],
+                    "label": a["label"],
+                    "address": a["address"],
+                    "barangay": a["barangay"],
+                    "city": a["city"],
+                    "landmark": a["landmark"] or "",
+                }
+                self._draft["address"] = data
+                self._a_label.set(a["label"])
+                self._a_street.set(a["address"])
+                self._a_barangay.set(a["barangay"])
+                self._a_city.set(a["city"])
+                self._a_landmark.set(a["landmark"] or "")
+                return
+
+    def _validate_location(self):
+        """Reads the address form; a saved pick wins until fields are edited."""
+        data = {
+            "label": self._a_label.get().strip(),
+            "address": self._a_street.get().strip(),
+            "barangay": self._a_barangay.get().strip(),
+            "city": self._a_city.get().strip(),
+            "landmark": self._a_landmark.get().strip(),
+        }
+        if getattr(self, "_address_choice", None) and \
+                self._address_choice.get().isdigit():
+            for a in self._saved_addresses:
+                if a["id"] == int(self._address_choice.get()):
+                    data["saved_id"] = a["id"]
+                    data["label"] = a["label"]
+                    data["address"] = a["address"]
+                    data["barangay"] = a["barangay"]
+                    data["city"] = a["city"]
+                    data["landmark"] = a["landmark"] or ""
+                    break
+        ok, message = validators.validate_address(
+            data["label"], data["address"], data["barangay"],
+            data["city"], data["landmark"])
+        if not ok:
+            return (False, message)
+        picked_saved = "saved_id" in data
+        if not picked_saved and self._saved_address_check and \
+                self._saved_address_check.get():
+            saved_id = database.add_saved_address(
+                self.user["id"], data["label"], data["address"],
+                data["barangay"], data["city"], data["landmark"],
+                is_default=0)
+            if saved_id:
+                data["saved_id"] = saved_id
+        self._draft["address"] = data
+        return (True, "")
+
+    # ------------------------------------------------------------------
+    # STEP 5 - REVIEW
+    # ------------------------------------------------------------------
     def _step_review(self):
-        """Step 5: summary and confirm button."""
-        card = Card(self.content)
-        card.pack(fill="both", expand=True)
-        body = card.body
-        SectionHeading(body, title="Step 5 - Review",
-                       subtitle="Check everything then book it").pack(anchor="w")
-        rows = (
-            ("Vehicle", self.vehicle_type),
-            ("Package", config.tier_name(self.tier_id)),
-            ("Add-ons", "None" if not self.addons else
-             ", ".join(addon["name"] for addon in database.get_addons()
-                       if addon["id"] in self.addons and addon["active"])),
-            ("Date", self.booking_date),
-            ("Slot", self.time_slot),
-            ("Address", self.address),
-            ("Zone", config.zone_name(self.zone_code)
-             if self.zone_code else "Not picked"),
-        )
-        for label, value in rows:
-            row = tk.Frame(body, bg=theme.BG_SURFACE)
-            row.pack(fill="x", pady=(4, 0))
-            tk.Label(row, text=label, font=theme.FONT_SMALL,
-                     fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE).pack(side="left")
-            tk.Label(row, text=value or "-", font=theme.FONT_BODY,
-                     fg=theme.TEXT, bg=theme.BG_SURFACE,
-                     justify="right").pack(side="right")
-        tk.Frame(body, bg=theme.BORDER, height=1).pack(fill="x",
-                                                       pady=(theme.PAD_MD, 0))
-        pricing = self._compute_price()
-        for label, value in (
-            ("Base price", "\u20b1" + str(pricing["base"])),
-            ("Add-ons", "\u20b1" + str(pricing["addons"])),
-            ("Travel fee", "\u20b1" + str(pricing["travel"])),
-        ):
-            row = tk.Frame(body, bg=theme.BG_SURFACE)
-            row.pack(fill="x", pady=(2, 0))
-            tk.Label(row, text=label, font=theme.FONT_SMALL, fg=theme.TEXT_MUTED,
-                     bg=theme.BG_SURFACE).pack(side="left")
-            tk.Label(row, text=value, font=theme.FONT_SMALL, fg=theme.TEXT,
-                     bg=theme.BG_SURFACE).pack(side="right")
-        row = tk.Frame(body, bg=theme.BG_SURFACE)
-        row.pack(fill="x", pady=(theme.PAD_SM, 0))
-        tk.Label(row, text="Total", font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
-                 bg=theme.BG_SURFACE).pack(side="left")
-        tk.Label(row, text="\u20b1" + str(pricing["total"]),
-                 font=theme.FONT_PRICE, fg=theme.PRIMARY,
-                 bg=theme.BG_SURFACE).pack(side="right")
-        self._nav_buttons(body, next_text="Confirm booking")
+        """Summary lines with a breakdown: base + add-ons = total."""
+        self._clear_step()
+        left = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        left.pack(side="left", fill="both", expand=True)
+        right = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        right.pack(side="right", padx=(theme.PAD_XL, 0))
 
-    # ------------------------------------------------------------------
-    # PRICING
-    # ------------------------------------------------------------------
-    def _compute_price(self):
-        """Returns a dict with base, add-ons, travel, and total prices."""
-        base = database.get_price(self.tier_id, self.vehicle_type)
+        v = self._draft["vehicle"]
+        a = self._draft["address"]
+        lines = [
+            ("Vehicle", database.vehicle_desc(v["vehicle_type"], v["make"],
+                                              v["model"], v["color"],
+                                              v["plate"])),
+            ("Package", config.tier_name(self._draft["tier_id"])),
+            ("When", config.friendly_date(self._draft["booking_date"])
+             + "  -  " + self._draft["time_slot"]),
+            ("Where", " - ".join(database.address_lines(
+                a["address"], a["barangay"], a["city"], a["landmark"]))),
+        ]
+        for key, value in lines:
+            tk.Label(left, text=key, font=theme.FONT_SMALL_BOLD,
+                     fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE).pack(
+                         anchor="w", pady=(theme.PAD_SM, 0))
+            tk.Label(left, text=value, font=theme.FONT_BODY, fg=theme.TEXT,
+                     bg=theme.BG_SURFACE, wraplength=340,
+                     justify="left").pack(anchor="w")
+
+        base = config.price_for(self._draft["tier_id"],
+                                self._draft["vehicle_type"])
         addon_total = 0
-        for addon in database.get_addons():
-            if addon["id"] in self.addons and addon["active"]:
-                addon_total += addon["price"]
-        travel = self.travel_fee or 0
-        return {"base": base, "addons": addon_total, "travel": travel,
-                "total": base + addon_total + travel}
-
-    # ------------------------------------------------------------------
-    # VALIDATION AND CONFIRM
-    # ------------------------------------------------------------------
-    def _validate(self):
-        """Validates the current step; shows inline errors when bad."""
-        if self.step == 2:
-            if not self.tier_id:
-                Toast.show(self.winfo_toplevel(), "Pick a package.", "error")
-                return False
-            return True
-        if self.step == 3:
-            self.booking_date = self._date_field.get()
-            ok, message = validators.validate_date(self.booking_date)
-            if not ok:
-                Toast.show(self.winfo_toplevel(), message, "error")
-                return False
-            if not self.time_slot:
-                Toast.show(self.winfo_toplevel(),
-                           "Pick a time slot.", "error")
-                return False
-            return True
-        if self.step == 4:
-            self.address = self._address_field.get()
-            ok, message = validators.is_empty(self.address), ""
-            if ok:
-                Toast.show(self.winfo_toplevel(),
-                           "Service address is required.", "error")
-                return False
-            if len(self.address.strip()) < 5:
-                Toast.show(self.winfo_toplevel(),
-                           "Service address is too short.", "error")
-                return False
-            if not self._map.selected_zone:
-                Toast.show(self.winfo_toplevel(),
-                           "Pick a service zone on the map.", "error")
-                return False
-            self.zone_code = self._map.selected_zone["code"]
-            coords = self._map.get_selection()
-            self.pin_x, self.pin_y = coords[1], coords[2]
-            return True
-        if self.step == 5:
-            price = self._compute_price()
-            if price["total"] <= 0:
-                Toast.show(self.winfo_toplevel(), "Pricing unavailable.", "error")
-                return False
-            return True
-        return True
+        for addon_id in self._draft["addons"]:
+            addon_total = addon_total + config.ADD_ONS[addon_id]["price"]
+        tk.Label(right, text="Price breakdown", font=theme.FONT_BODY_BOLD,
+                 fg=theme.TEXT, bg=theme.BG_SURFACE).pack(anchor="w")
+        tk.Label(right, text=config.tier_name(self._draft["tier_id"])
+                 + " (" + self._draft["vehicle_type"] + ")",
+                 font=theme.FONT_SMALL, fg=theme.TEXT_MUTED,
+                 bg=theme.BG_SURFACE).pack(anchor="w")
+        table = tk.Frame(right, bg=theme.BG_SURFACE)
+        table.pack(anchor="w", pady=(theme.PAD_SM, 0))
+        rows = [("Base", "\u20b1" + str(base))]
+        for addon_id in self._draft["addons"]:
+            info = config.ADD_ONS[addon_id]
+            rows.append((info["name"], "+" + "\u20b1" + str(info["price"])))
+        rows.append(("Total", "\u20b1" + str(base + addon_total)))
+        for i, (name, amount) in enumerate(rows):
+            last = i == len(rows) - 1
+            tk.Label(table, text=name, font=theme.FONT_BODY_BOLD if last
+                     else theme.FONT_SMALL,
+                     fg=theme.TEXT if last else theme.TEXT_MUTED,
+                     bg=theme.BG_SURFACE).grid(row=i, column=0, sticky="w")
+            tk.Label(table, text=amount,
+                     font=theme.FONT_BODY_BOLD if last else theme.FONT_SMALL,
+                     fg=theme.TEXT, bg=theme.BG_SURFACE).grid(
+                         row=i, column=1, sticky="e", padx=(30, 0))
+        note = tk.Frame(right, bg=theme.BG_SURFACE)
+        note.pack(anchor="w", pady=(theme.PAD_MD, 0))
+        tk.Label(note, text=config.REVIEW_NOTE, font=theme.FONT_TINY,
+                 fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE,
+                 wraplength=260, justify="left").pack(anchor="w")
 
     def _confirm(self):
-        """Saves the booking as Pending and goes to My Bookings."""
-        pricing = self._compute_price()
-        database.create_booking(
-            self.app.current_user["id"],
-            self.vehicle_type, self.tier_id,
-            ",".join(self.addons), pricing["base"], pricing["addons"],
-            pricing["travel"], pricing["total"], self.booking_date,
-            self.time_slot, self.address, self.zone_code,
-            self.pin_x, self.pin_y, "Pending")
-        Toast.show(self.winfo_toplevel(), "Booking created!", "success")
-        if hasattr(self.app, "shell"):
-            self.app.shell.switch_view("my_bookings")
+        """Validates everything, saves the booking as Pending, shows a toast."""
+        for validate, step in ((self._validate_vehicle, 0),
+                               (self._validate_package, 1),
+                               (self._validate_schedule, 2),
+                               (self._validate_location, 3)):
+            ok, message = validate()
+            if not ok:
+                self._draft["step"] = step
+                self.render_step()
+                Toast(self, message, variant="error")
+                return
+        v = self._draft["vehicle"]
+        a = self._draft["address"]
+        base = config.price_for(self._draft["tier_id"],
+                                self._draft["vehicle_type"])
+        addon_total = 0
+        for addon_id in self._draft["addons"]:
+            addon_total = addon_total + config.ADD_ONS[addon_id]["price"]
+        addons_csv = ",".join(self._draft["addons"])
+        booking_id = database.create_booking(
+            self.user["id"], v["vehicle_type"], self._draft["tier_id"],
+            addons_csv, base, addon_total, base + addon_total,
+            self._draft["booking_date"], self._draft["time_slot"],
+            a["address"], a["barangay"], a["city"], a["landmark"],
+            v["label"], v["make"], v["model"], v["color"], v["plate"],
+            "Pending")
+        if booking_id is None:
+            Toast(self, "That time slot filled up - pick another.",
+                  variant="error")
+            self._draft["step"] = 2
+            self.render_step()
+            return
+
+        self._draft.clear()
+
+        # Reset the reusable fields for the next booking session.
+        self._draft.update({"vehicle_type": "Sedan", "tier_id": "wash_vacuum",
+                            "addons": [], "place": {}, "step": 0})
+        self._saved_vehicles = database.get_saved_vehicles(self.user["id"])
+        self._saved_addresses = database.get_saved_addresses(self.user["id"])
+
+        # Show the toast on the shell (this view is about to close), then
+        # jump to My Bookings where the new booking is visible at once.
+        Toast(self.winfo_toplevel(),
+              "Booking #" + str(booking_id) + " requested!", variant="ok")
+        self.shell.switch_view("my_bookings")

@@ -4,12 +4,12 @@ database.py
 All SQLite work for AutoGlide lives here, and only here.
 
 The database file is autoglide.db and is created automatically the first time
-the program runs. Default data (one admin account and three detailers) is
-seeded at that time.
+the program runs. Default data (the admin account) is seeded at that time.
 
 This file also performs a SAFE migration: if an older autoglide.db already
-exists, new tables and columns are added and default rows are filled in only
-when they are missing, so no existing bookings or accounts are ever lost.
+exists, new columns are added and default rows are filled in only when they
+are missing. Tables and rows are never dropped or deleted, so old bookings
+(including ones with zone codes and travel fees) keep all their stored data.
 
 Screens import these functions and never write SQL themselves.
 Uses only the standard library (sqlite3, os, datetime).
@@ -39,7 +39,7 @@ def get_connection():
 def initialize_database():
     """
     Creates the database and its tables when missing, then runs a safe
-    migration (new tables and columns) and seeds any missing default rows.
+    migration (new columns) and seeds any missing default rows.
     """
     connection = get_connection()
     try:
@@ -67,6 +67,7 @@ def _create_tables(connection):
         "created_at TEXT NOT NULL)"
     )
 
+    # Old table kept so existing databases keep working; no longer used.
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS detailers ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -74,6 +75,8 @@ def _create_tables(connection):
         "active INTEGER NOT NULL DEFAULT 1)"
     )
 
+    # Note: zone_code, pin_x, pin_y, travel_fee and detailer_id are old
+    # columns kept so older rows survive. New bookings leave them empty.
     cursor.execute(
         "CREATE TABLE IF NOT EXISTS bookings ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -93,34 +96,15 @@ def _create_tables(connection):
         "pin_y INTEGER, "
         "status TEXT NOT NULL, "
         "detailer_id INTEGER, "
+        "barangay TEXT DEFAULT '', "
+        "city TEXT DEFAULT '', "
+        "landmark TEXT DEFAULT '', "
+        "vehicle_label TEXT DEFAULT '', "
+        "vehicle_make TEXT DEFAULT '', "
+        "vehicle_model TEXT DEFAULT '', "
+        "vehicle_color TEXT DEFAULT '', "
+        "vehicle_plate TEXT DEFAULT '', "
         "created_at TEXT NOT NULL)"
-    )
-
-    # Editable package prices, one row per (package, vehicle type).
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS tier_prices ("
-        "tier_id TEXT NOT NULL, "
-        "vehicle_type TEXT NOT NULL, "
-        "price INTEGER NOT NULL, "
-        "PRIMARY KEY (tier_id, vehicle_type))"
-    )
-
-    # Editable add-ons.
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS addons ("
-        "id TEXT PRIMARY KEY, "
-        "name TEXT NOT NULL, "
-        "price INTEGER NOT NULL, "
-        "active INTEGER NOT NULL DEFAULT 1)"
-    )
-
-    # Editable service zones and their travel fees.
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS zones ("
-        "code TEXT PRIMARY KEY, "
-        "name TEXT NOT NULL, "
-        "travel_fee INTEGER NOT NULL, "
-        "active INTEGER NOT NULL DEFAULT 1)"
     )
 
     # Saved vehicles a client may reuse when booking.
@@ -130,6 +114,10 @@ def _create_tables(connection):
         "user_id INTEGER NOT NULL, "
         "label TEXT NOT NULL, "
         "vehicle_type TEXT NOT NULL, "
+        "make TEXT DEFAULT '', "
+        "model TEXT DEFAULT '', "
+        "color TEXT DEFAULT '', "
+        "plate TEXT DEFAULT '', "
         "created_at TEXT NOT NULL)"
     )
 
@@ -140,6 +128,10 @@ def _create_tables(connection):
         "user_id INTEGER NOT NULL, "
         "label TEXT NOT NULL, "
         "address TEXT NOT NULL, "
+        "barangay TEXT DEFAULT '', "
+        "city TEXT DEFAULT '', "
+        "landmark TEXT DEFAULT '', "
+        "is_default INTEGER NOT NULL DEFAULT 0, "
         "zone_code TEXT, "
         "pin_x INTEGER, "
         "pin_y INTEGER, "
@@ -147,7 +139,6 @@ def _create_tables(connection):
     )
 
     connection.commit()
-    _migrate(connection)
 
 
 def _has_column(connection, table, column):
@@ -164,9 +155,39 @@ def _migrate(connection):
     Adds columns that a newer version needs but an older database lacks.
     Existing rows keep their data; only the missing column is added.
     """
-    if not _has_column(connection, "detailers", "active"):
-        connection.execute(
-            "ALTER TABLE detailers ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+    plans = {
+        "bookings": [
+            ("barangay", "TEXT DEFAULT ''"),
+            ("city", "TEXT DEFAULT ''"),
+            ("landmark", "TEXT DEFAULT ''"),
+            ("vehicle_label", "TEXT DEFAULT ''"),
+            ("vehicle_make", "TEXT DEFAULT ''"),
+            ("vehicle_model", "TEXT DEFAULT ''"),
+            ("vehicle_color", "TEXT DEFAULT ''"),
+            ("vehicle_plate", "TEXT DEFAULT ''")
+        ],
+        "saved_vehicles": [
+            ("make", "TEXT DEFAULT ''"),
+            ("model", "TEXT DEFAULT ''"),
+            ("color", "TEXT DEFAULT ''"),
+            ("plate", "TEXT DEFAULT ''")
+        ],
+        "saved_addresses": [
+            ("barangay", "TEXT DEFAULT ''"),
+            ("city", "TEXT DEFAULT ''"),
+            ("landmark", "TEXT DEFAULT ''"),
+            ("is_default", "INTEGER NOT NULL DEFAULT 0")
+        ],
+        "detailers": [
+            ("active", "INTEGER NOT NULL DEFAULT 1")
+        ]
+    }
+    for table, new_columns in plans.items():
+        for column, definition in new_columns:
+            if not _has_column(connection, table, column):
+                connection.execute(
+                    "ALTER TABLE " + table + " ADD COLUMN " + column
+                    + " " + definition)
         connection.commit()
 
 
@@ -174,54 +195,19 @@ def _migrate(connection):
 # SEEDING (only fills in what is missing)
 # ---------------------------------------------------------------------------
 def _seed_defaults(connection):
-    """Inserts default accounts, detailers, prices, add-ons, and zones."""
+    """Inserts the default admin account when the users table is empty."""
     cursor = connection.cursor()
 
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         admin_data = config.DEFAULT_ADMIN
         cursor.execute(
-            "INSERT INTO users (full_name, username, phone, email, password, role, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (full_name, username, phone, email, password, role, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (admin_data["full_name"], admin_data["username"],
              admin_data["phone"], admin_data["email"], admin_data["password"],
              admin_data["role"], _now())
         )
-
-    cursor.execute("SELECT COUNT(*) FROM detailers")
-    if cursor.fetchone()[0] == 0:
-        for name in config.DEFAULT_DETAILERS:
-            cursor.execute("INSERT INTO detailers (name, active) VALUES (?, 1)", (name,))
-
-    # Package prices, from config, only when the table is empty.
-    cursor.execute("SELECT COUNT(*) FROM tier_prices")
-    if cursor.fetchone()[0] == 0:
-        for tier in config.SERVICE_TIERS:
-            for vehicle_type, price in tier["prices"].items():
-                cursor.execute(
-                    "INSERT INTO tier_prices (tier_id, vehicle_type, price) "
-                    "VALUES (?, ?, ?)",
-                    (tier["id"], vehicle_type, price)
-                )
-
-    # Add-ons, from config, only when the table is empty.
-    cursor.execute("SELECT COUNT(*) FROM addons")
-    if cursor.fetchone()[0] == 0:
-        for addon in config.ADD_ONS:
-            cursor.execute(
-                "INSERT INTO addons (id, name, price, active) VALUES (?, ?, ?, 1)",
-                (addon["id"], addon["name"], addon["price"])
-            )
-
-    # Zones, from config, only when the table is empty.
-    cursor.execute("SELECT COUNT(*) FROM zones")
-    if cursor.fetchone()[0] == 0:
-        for zone in config.SERVICE_ZONES:
-            cursor.execute(
-                "INSERT INTO zones (code, name, travel_fee, active) VALUES (?, ?, ?, 1)",
-                (zone["code"], zone["name"], zone["travel_fee"])
-            )
-
     connection.commit()
 
 
@@ -244,14 +230,27 @@ def username_exists(username):
         connection.close()
 
 
+def delete_user(username):
+    """Removes one user account by username (used by tests and cleanup)."""
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("DELETE FROM users WHERE username=?", (username,))
+        deleted = cursor.rowcount
+        connection.commit()
+        return deleted
+    finally:
+        connection.close()
+
+
 def create_user(full_name, username, phone, email, password, role="client"):
     """Inserts a new user and returns the new row id."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
         cursor.execute(
-            "INSERT INTO users (full_name, username, phone, email, password, role, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (full_name, username, phone, email, password, role, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (full_name, username, phone, email, password, role, _now())
         )
         connection.commit()
@@ -311,223 +310,9 @@ def get_clients():
     connection = get_connection()
     try:
         cursor = connection.cursor()
-        cursor.execute("SELECT * FROM users WHERE role = 'client' ORDER BY full_name")
+        cursor.execute("SELECT * FROM users WHERE role = 'client' "
+                       "ORDER BY full_name")
         return cursor.fetchall()
-    finally:
-        connection.close()
-
-
-# ---------------------------------------------------------------------------
-# DETAILERS
-# ---------------------------------------------------------------------------
-def get_detailers():
-    """Returns every detailer row ordered by name."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM detailers ORDER BY name")
-        return cursor.fetchall()
-    finally:
-        connection.close()
-
-
-def get_active_detailers():
-    """Returns only the detailers that are marked active."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM detailers WHERE active = 1 ORDER BY name")
-        return cursor.fetchall()
-    finally:
-        connection.close()
-
-
-def add_detailer(name):
-    """Adds a new detailer and returns the new row id."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("INSERT INTO detailers (name, active) VALUES (?, 1)", (name,))
-        connection.commit()
-        return cursor.lastrowid
-    finally:
-        connection.close()
-
-
-def rename_detailer(detailer_id, name):
-    """Changes a detailer's name."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("UPDATE detailers SET name = ? WHERE id = ?", (name, detailer_id))
-        connection.commit()
-    finally:
-        connection.close()
-
-
-def set_detailer_active(detailer_id, active):
-    """Marks a detailer active (1) or inactive (0)."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("UPDATE detailers SET active = ? WHERE id = ?",
-                       (1 if active else 0, detailer_id))
-        connection.commit()
-    finally:
-        connection.close()
-
-
-def get_detailers_list():
-    """Returns the detailer rows (alias kept for older code)."""
-    return get_detailers()
-
-
-# ---------------------------------------------------------------------------
-# PRICES, ADD-ONS, ZONES (admin editable)
-# ---------------------------------------------------------------------------
-def get_tier_prices():
-    """Returns all package price rows."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM tier_prices")
-        return cursor.fetchall()
-    finally:
-        connection.close()
-
-
-def get_price(tier_id, vehicle_type):
-    """Returns the current price for a package and vehicle type."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute(
-            "SELECT price FROM tier_prices WHERE tier_id = ? AND vehicle_type = ?",
-            (tier_id, vehicle_type)
-        )
-        row = cursor.fetchone()
-        if row is None:
-            tier = config.tier_by_id(tier_id)
-            if tier is not None:
-                return tier["prices"].get(vehicle_type, 0)
-            return 0
-        return row["price"]
-    finally:
-        connection.close()
-
-
-def update_price(tier_id, vehicle_type, price):
-    """Sets the price for a package and vehicle type."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute(
-            "UPDATE tier_prices SET price = ? WHERE tier_id = ? AND vehicle_type = ?",
-            (price, tier_id, vehicle_type)
-        )
-        connection.commit()
-    finally:
-        connection.close()
-
-
-def get_addons():
-    """Returns all add-on rows ordered by name."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM addons ORDER BY name")
-        return cursor.fetchall()
-    finally:
-        connection.close()
-
-
-def get_active_addons():
-    """Returns only the add-ons that are marked active."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM addons WHERE active = 1 ORDER BY name")
-        return cursor.fetchall()
-    finally:
-        connection.close()
-
-
-def get_addon(addon_id):
-    """Returns one add-on row by id, or None."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM addons WHERE id = ?", (addon_id,))
-        return cursor.fetchone()
-    finally:
-        connection.close()
-
-
-def update_addon_price(addon_id, price):
-    """Changes an add-on's price."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("UPDATE addons SET price = ? WHERE id = ?", (price, addon_id))
-        connection.commit()
-    finally:
-        connection.close()
-
-
-def set_addon_active(addon_id, active):
-    """Marks an add-on active (1) or inactive (0)."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("UPDATE addons SET active = ? WHERE id = ?",
-                       (1 if active else 0, addon_id))
-        connection.commit()
-    finally:
-        connection.close()
-
-
-def get_zones():
-    """Returns all service zone rows ordered by name."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM zones ORDER BY name")
-        return cursor.fetchall()
-    finally:
-        connection.close()
-
-
-def get_active_zones():
-    """Returns only the zones that are marked active."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT * FROM zones WHERE active = 1 ORDER BY name")
-        return cursor.fetchall()
-    finally:
-        connection.close()
-
-
-def update_zone_fee(code, travel_fee):
-    """Changes a zone's travel fee."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("UPDATE zones SET travel_fee = ? WHERE code = ?",
-                       (travel_fee, code))
-        connection.commit()
-    finally:
-        connection.close()
-
-
-def set_zone_active(code, active):
-    """Marks a zone active (1) or inactive (0)."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("UPDATE zones SET active = ? WHERE code = ?",
-                       (1 if active else 0, code))
-        connection.commit()
     finally:
         connection.close()
 
@@ -549,18 +334,45 @@ def get_saved_vehicles(user_id):
         connection.close()
 
 
-def add_saved_vehicle(user_id, label, vehicle_type):
+def get_saved_vehicle(vehicle_id):
+    """Returns one saved vehicle row by id, or None."""
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM saved_vehicles WHERE id = ?", (vehicle_id,))
+        return cursor.fetchone()
+    finally:
+        connection.close()
+
+
+def add_saved_vehicle(user_id, label, vehicle_type, make, model, color, plate):
     """Saves a vehicle for a client and returns the new row id."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
         cursor.execute(
-            "INSERT INTO saved_vehicles (user_id, label, vehicle_type, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (user_id, label, vehicle_type, _now())
+            "INSERT INTO saved_vehicles (user_id, label, vehicle_type, make, model, "
+            "color, plate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, label, vehicle_type, make, model, color, plate, _now())
         )
         connection.commit()
         return cursor.lastrowid
+    finally:
+        connection.close()
+
+
+def update_saved_vehicle(vehicle_id, label, vehicle_type, make, model, color,
+                         plate):
+    """Updates one saved vehicle."""
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "UPDATE saved_vehicles SET label = ?, vehicle_type = ?, make = ?, "
+            "model = ?, color = ?, plate = ? WHERE id = ?",
+            (label, vehicle_type, make, model, color, plate, vehicle_id)
+        )
+        connection.commit()
     finally:
         connection.close()
 
@@ -576,35 +388,114 @@ def delete_saved_vehicle(vehicle_id):
         connection.close()
 
 
+def vehicle_desc(*args):
+    """
+    Formats a vehicle as one readable line.
+    Use either a saved vehicle row, or plain parts in the order
+    (vehicle_type, make, model, color, plate).
+    """
+    if len(args) == 1:
+        row = args[0]
+        row = {
+            "label": row["label"],
+            "vehicle_type": row["vehicle_type"],
+            "make": row["make"],
+            "model": row["model"],
+            "color": row["color"],
+            "plate": row["plate"],
+        }
+    else:
+        vehicle_type, make, model, color, plate = args
+        row = {"label": "", "vehicle_type": vehicle_type, "make": make,
+               "model": model, "color": color, "plate": plate}
+    parts = []
+    if row["make"] or row["model"]:
+        parts.append((row["make"] + " " + row["model"]).strip())
+    if row["color"]:
+        parts.append(row["color"])
+    text = " ".join(p for p in ([row["vehicle_type"]] + parts) if p)
+    if row["plate"]:
+        text = text + " (" + row["plate"] + ")"
+    elif row["label"]:
+        text = row["label"] + " - " + text
+    return text
+
+
 # ---------------------------------------------------------------------------
 # SAVED ADDRESSES
 # ---------------------------------------------------------------------------
 def get_saved_addresses(user_id):
-    """Returns a client's saved addresses, newest first."""
+    """Returns a client's saved addresses, default first then newest."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
         cursor.execute(
-            "SELECT * FROM saved_addresses WHERE user_id = ? ORDER BY id DESC",
-            (user_id,)
+            "SELECT * FROM saved_addresses WHERE user_id = ? "
+            "ORDER BY is_default DESC, id DESC", (user_id,)
         )
         return cursor.fetchall()
     finally:
         connection.close()
 
 
-def add_saved_address(user_id, label, address, zone_code, pin_x, pin_y):
+def get_saved_address(address_id):
+    """Returns one saved address row by id, or None."""
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM saved_addresses WHERE id = ?",
+                       (address_id,))
+        return cursor.fetchone()
+    finally:
+        connection.close()
+
+
+def add_saved_address(user_id, label, address, barangay, city, landmark,
+                      is_default=False):
     """Saves an address for a client and returns the new row id."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
+        if is_default:
+            cursor.execute("UPDATE saved_addresses SET is_default = 0 "
+                           "WHERE user_id = ?", (user_id,))
         cursor.execute(
-            "INSERT INTO saved_addresses (user_id, label, address, zone_code, pin_x, "
-            "pin_y, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (user_id, label, address, zone_code, pin_x, pin_y, _now())
+            "INSERT INTO saved_addresses (user_id, label, address, barangay, city, "
+            "landmark, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, label, address, barangay, city, landmark,
+             1 if is_default else 0, _now())
         )
         connection.commit()
         return cursor.lastrowid
+    finally:
+        connection.close()
+
+
+def update_saved_address(address_id, label, address, barangay, city, landmark):
+    """Updates one saved address (does not change the default flag)."""
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "UPDATE saved_addresses SET label = ?, address = ?, barangay = ?, "
+            "city = ?, landmark = ? WHERE id = ?",
+            (label, address, barangay, city, landmark, address_id)
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def set_default_address(address_id, user_id):
+    """Marks one address as the default and clears the old default."""
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("UPDATE saved_addresses SET is_default = 0 "
+                       "WHERE user_id = ?", (user_id,))
+        cursor.execute("UPDATE saved_addresses SET is_default = 1 "
+                       "WHERE id = ?", (address_id,))
+        connection.commit()
     finally:
         connection.close()
 
@@ -618,6 +509,31 @@ def delete_saved_address(address_id):
         connection.commit()
     finally:
         connection.close()
+
+
+def address_lines(*args):
+    """
+    Formats an address as one readable line.
+    Use either a saved address row, or plain parts in the order
+    (address, barangay, city, landmark).
+    """
+    if len(args) == 1:
+        row = args[0]
+        row = {"address": row["address"], "barangay": row["barangay"],
+               "city": row["city"], "landmark": row["landmark"]}
+    else:
+        address, barangay, city, landmark = args
+        row = {"address": address, "barangay": barangay, "city": city,
+               "landmark": landmark}
+    parts = [row["address"]]
+    if row["barangay"]:
+        parts.append("Brgy. " + row["barangay"])
+    if row["city"]:
+        parts.append(row["city"])
+    text = ", ".join(p for p in parts if p)
+    if row["landmark"]:
+        text = text + " (near " + row["landmark"] + ")"
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -641,20 +557,30 @@ def count_slot_bookings(booking_date, time_slot, exclude_id=None):
 
 
 def create_booking(user_id, vehicle_type, tier_id, addons, base_price,
-                   addon_total, travel_fee, total_price, booking_date,
-                   time_slot, address, zone_code, pin_x, pin_y, status):
-    """Inserts a new booking and returns the new row id."""
+                   addon_total, total_price, booking_date, time_slot,
+                   address, barangay, city, landmark, vehicle_label,
+                   vehicle_make, vehicle_model, vehicle_color, vehicle_plate,
+                   status):
+    """
+    Inserts a new booking and returns the new row id.
+    Old columns (zone_code, pin_x, pin_y, travel_fee, detailer_id) are left
+    empty because bookings no longer use zones or travel fees.
+    """
     connection = get_connection()
     try:
         cursor = connection.cursor()
         cursor.execute(
-            "INSERT INTO bookings (user_id, vehicle_type, tier_id, addons, base_price, "
-            "addon_total, travel_fee, total_price, booking_date, time_slot, address, "
-            "zone_code, pin_x, pin_y, status, detailer_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO bookings (user_id, vehicle_type, tier_id, addons, "
+            "base_price, addon_total, travel_fee, total_price, booking_date, "
+            "time_slot, address, barangay, city, landmark, vehicle_label, "
+            "vehicle_make, vehicle_model, vehicle_color, vehicle_plate, "
+            "zone_code, pin_x, pin_y, detailer_id, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+            "NULL, NULL, NULL, NULL, ?, ?)",
             (user_id, vehicle_type, tier_id, addons, base_price, addon_total,
-             travel_fee, total_price, booking_date, time_slot, address, zone_code,
-             pin_x, pin_y, status, None, _now())
+             0, total_price, booking_date, time_slot, address, barangay,
+             city, landmark, vehicle_label, vehicle_make, vehicle_model,
+             vehicle_color, vehicle_plate, status, _now())
         )
         connection.commit()
         return cursor.lastrowid
@@ -662,52 +588,65 @@ def create_booking(user_id, vehicle_type, tier_id, addons, base_price,
         connection.close()
 
 
+_BOOKING_JOIN = (
+    "SELECT b.*, u.full_name AS client_name, u.phone AS client_phone, "
+    "u.email AS client_email, u.username AS client_username "
+    "FROM bookings b "
+    "LEFT JOIN users u ON b.user_id = u.id "
+)
+
+
+def get_bookings_last_days(days):
+    """
+    Counts bookings per day for the last N days, oldest first.
+    Returns a dict like {'2026-10-13': 2, ...} for the dashboard chart.
+    """
+    import datetime
+    today = datetime.date.today()
+    first_day = today - datetime.timedelta(days=days - 1)
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT booking_date, COUNT(*) AS total FROM bookings "
+            "WHERE booking_date >= ? AND booking_date <= ? "
+            "GROUP BY booking_date",
+            (first_day.isoformat(), today.isoformat()))
+        rows = cursor.fetchall()
+    finally:
+        connection.close()
+    return {row["booking_date"]: row["total"] for row in rows}
+
+
 def get_bookings_by_user(user_id):
     """Returns all bookings that belong to one client, newest first."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
-        cursor.execute(
-            "SELECT * FROM bookings WHERE user_id = ? ORDER BY id DESC",
-            (user_id,)
-        )
+        cursor.execute(_BOOKING_JOIN + " WHERE b.user_id = ? ORDER BY b.id DESC",
+                       (user_id,))
         return cursor.fetchall()
     finally:
         connection.close()
 
 
 def get_booking(booking_id):
-    """Returns one booking row by id, joined with client and detailer names."""
+    """Returns one booking row by id, joined with the client's details."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
-        cursor.execute(
-            "SELECT b.*, u.full_name AS client_name, u.phone AS client_phone, "
-            "d.name AS detailer_name "
-            "FROM bookings b "
-            "LEFT JOIN users u ON b.user_id = u.id "
-            "LEFT JOIN detailers d ON b.detailer_id = d.id "
-            "WHERE b.id = ?",
-            (booking_id,)
-        )
+        cursor.execute(_BOOKING_JOIN + " WHERE b.id = ?", (booking_id,))
         return cursor.fetchone()
     finally:
         connection.close()
 
 
 def get_all_bookings():
-    """Returns every booking joined with client and detailer names."""
+    """Returns every booking joined with client details, newest first."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
-        cursor.execute(
-            "SELECT b.*, u.full_name AS client_name, u.phone AS client_phone, "
-            "d.name AS detailer_name "
-            "FROM bookings b "
-            "LEFT JOIN users u ON b.user_id = u.id "
-            "LEFT JOIN detailers d ON b.detailer_id = d.id "
-            "ORDER BY b.id DESC"
-        )
+        cursor.execute(_BOOKING_JOIN + " ORDER BY b.id DESC")
         return cursor.fetchall()
     finally:
         connection.close()
@@ -718,13 +657,7 @@ def get_bookings_filtered(status=None, booking_date=None):
     connection = get_connection()
     try:
         cursor = connection.cursor()
-        query = (
-            "SELECT b.*, u.full_name AS client_name, u.phone AS client_phone, "
-            "d.name AS detailer_name "
-            "FROM bookings b "
-            "LEFT JOIN users u ON b.user_id = u.id "
-            "LEFT JOIN detailers d ON b.detailer_id = d.id WHERE 1 = 1"
-        )
+        query = _BOOKING_JOIN + " WHERE 1 = 1"
         values = []
         if status:
             query = query + " AND b.status = ?"
@@ -740,22 +673,29 @@ def get_bookings_filtered(status=None, booking_date=None):
 
 
 def get_bookings_on_date(booking_date):
-    """Returns bookings scheduled for one date, joined with names."""
-    return get_bookings_filtered(booking_date=booking_date)
+    """Returns bookings scheduled for one date, sorted by day order."""
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            _BOOKING_JOIN + " WHERE b.booking_date = ? "
+            "ORDER BY b.time_slot",
+            (booking_date,)
+        )
+        return cursor.fetchall()
+    finally:
+        connection.close()
 
 
 def get_bookings_in_month(year, month):
-    """Returns bookings whose date falls inside a given month."""
+    """Returns bookings whose date falls inside a given month, by date."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
         prefix = "%04d-%02d-%%" % (year, month)
         cursor.execute(
-            "SELECT b.*, u.full_name AS client_name, d.name AS detailer_name "
-            "FROM bookings b "
-            "LEFT JOIN users u ON b.user_id = u.id "
-            "LEFT JOIN detailers d ON b.detailer_id = d.id "
-            "WHERE b.booking_date LIKE ? ORDER BY b.booking_date, b.time_slot",
+            _BOOKING_JOIN + " WHERE b.booking_date LIKE ? "
+            "ORDER BY b.booking_date, b.time_slot",
             (prefix,)
         )
         return cursor.fetchall()
@@ -764,44 +704,22 @@ def get_bookings_in_month(year, month):
 
 
 def update_status(booking_id, status):
-    """Changes the status of a booking."""
+    """Changes the status of a booking (admin action or client cancel)."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
-        cursor.execute("UPDATE bookings SET status = ? WHERE id = ?", (status, booking_id))
+        cursor.execute("UPDATE bookings SET status = ? WHERE id = ?",
+                       (status, booking_id))
         connection.commit()
-    finally:
-        connection.close()
-
-
-def assign_detailer(booking_id, detailer_id):
-    """Assigns a detailer to a booking (detailer_id may be None to clear)."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute("UPDATE bookings SET detailer_id = ? WHERE id = ?",
-                       (detailer_id, booking_id))
-        connection.commit()
-    finally:
-        connection.close()
-
-
-def reschedule_booking(booking_id, booking_date, time_slot):
-    """Moves a booking to a new date and time slot (admin action)."""
-    connection = get_connection()
-    try:
-        cursor = connection.cursor()
-        cursor.execute(
-            "UPDATE bookings SET booking_date = ?, time_slot = ? WHERE id = ?",
-            (booking_date, time_slot, booking_id)
-        )
-        connection.commit()
+        cursor.execute("SELECT user_id FROM bookings WHERE id = ?",
+                       (booking_id,))
+        return cursor.fetchone()
     finally:
         connection.close()
 
 
 def delete_booking(booking_id):
-    """Permanently removes a booking."""
+    """Permanently removes a booking (admin only, confirms first)."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
@@ -821,10 +739,12 @@ def get_summary():
         cursor = connection.cursor()
         cursor.execute("SELECT COUNT(*) FROM bookings")
         total = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = ?", ("Pending",))
+        cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = ?",
+                       ("Pending",))
         pending = cursor.fetchone()[0]
-        cursor.execute("SELECT SUM(total_price) FROM bookings WHERE status = ?",
-                       ("Completed",))
+        cursor.execute(
+            "SELECT SUM(total_price) FROM bookings WHERE status = ?",
+            ("Completed",))
         revenue_row = cursor.fetchone()[0]
         revenue = revenue_row if revenue_row is not None else 0
         return (total, pending, revenue)
@@ -834,22 +754,38 @@ def get_summary():
 
 def get_admin_stats():
     """
-    Returns a dictionary of dashboard numbers:
-    total bookings, pending, completed, cancelled, revenue from completed,
-    and the number of client accounts.
+    Returns dashboard numbers: bookings per status, revenue from completed
+    bookings only, and the count of client accounts.
     """
     connection = get_connection()
     try:
         cursor = connection.cursor()
         stats = {}
+        import datetime
+        today = datetime.date.today()
+        week_start = (today - datetime.timedelta(days=today.weekday())
+                      ).isoformat()
+        today_text = today.isoformat()
+        cursor.execute("SELECT COUNT(*) FROM bookings WHERE booking_date=?",
+                       (today_text,))
+        stats["today"] = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT COUNT(*) FROM bookings WHERE booking_date>=?",
+            (week_start,))
+        stats["week"] = cursor.fetchone()[0]
+        active_list = ["Pending", "Confirmed", "On the Way", "In Progress"]
+        cursor.execute("SELECT COUNT(*) FROM bookings WHERE status IN "
+                       + "(" + ",".join("?" for _ in active_list) + ")",
+                       active_list)
+        stats["active"] = cursor.fetchone()[0]
         cursor.execute("SELECT COUNT(*) FROM bookings")
         stats["total"] = cursor.fetchone()[0]
-        for status in ["Pending", "Confirmed", "On the Way", "In Progress",
-                       "Completed", "Cancelled"]:
-            cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = ?", (status,))
+        for status in config.BOOKING_STATUSES:
+            cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = ?",
+                           (status,))
             stats[status] = cursor.fetchone()[0]
-        cursor.execute("SELECT SUM(total_price) FROM bookings WHERE status = ?",
-                       ("Completed",))
+        cursor.execute(
+            "SELECT SUM(total_price) FROM bookings WHERE status = 'Completed'")
         revenue_row = cursor.fetchone()[0]
         stats["revenue"] = revenue_row if revenue_row is not None else 0
         cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'client'")
@@ -859,20 +795,52 @@ def get_admin_stats():
         connection.close()
 
 
-def get_client_stats(user_id):
-    """Returns (total bookings, upcoming count) for one client."""
+def count_user_bookings(user_id):
+    """Counts how many bookings a client has made in total."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
-        cursor.execute("SELECT COUNT(*) FROM bookings WHERE user_id = ?", (user_id,))
-        total = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) AS total FROM bookings WHERE user_id=?",
+                       (user_id,))
+        return cursor.fetchone()["total"]
+    finally:
+        connection.close()
+
+
+def get_next_booking(user_id):
+    """Returns the client's closest upcoming active booking, or None."""
+    """
+    Returns the client's next upcoming active booking (soonest by date),
+    or None when there is nothing coming up.
+    """
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
         today = datetime.date.today().strftime("%Y-%m-%d")
         cursor.execute(
-            "SELECT COUNT(*) FROM bookings WHERE user_id = ? AND booking_date >= ? "
-            "AND status NOT IN ('Completed', 'Cancelled')",
+            "SELECT * FROM bookings WHERE user_id = ? AND booking_date >= ? "
+            "AND status NOT IN ('Completed', 'Cancelled') "
+            "ORDER BY booking_date, time_slot LIMIT 1",
             (user_id, today)
         )
-        upcoming = cursor.fetchone()[0]
-        return (total, upcoming)
+        return cursor.fetchone()
+    finally:
+        connection.close()
+
+
+# ---------------------------------------------------------------------------
+# CLIENTS FOR THE ADMIN SCREEN
+# ---------------------------------------------------------------------------
+def get_client_counts():
+    """Returns a dictionary user_id -> number of bookings for every client."""
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT user_id, COUNT(*) AS c FROM bookings "
+                       "GROUP BY user_id")
+        counts = {}
+        for row in cursor.fetchall():
+            counts[row["user_id"]] = row["c"]
+        return counts
     finally:
         connection.close()

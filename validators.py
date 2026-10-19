@@ -98,6 +98,21 @@ def validate_registration(full_name, username, phone, email, password, confirm):
     return (True, "")
 
 
+def validate_profile(full_name, phone, email):
+    """Checks just the editable profile fields (no username/password)."""
+    if is_empty(full_name):
+        return (False, "Full name is required.")
+    if len(full_name.strip()) < 2:
+        return (False, "Full name is too short.")
+    phone_ok, phone_message = validate_phone(phone)
+    if not phone_ok:
+        return (False, phone_message)
+    email_ok, email_message = validate_email(email)
+    if not email_ok:
+        return (False, email_message)
+    return (True, "")
+
+
 def validate_date_format(date_text):
     """Checks only that a date uses the format YYYY-MM-DD and is a real date."""
     if is_empty(date_text):
@@ -129,18 +144,61 @@ def validate_date(date_text):
     return (True, "")
 
 
-def validate_booking(address, date_text, zone_code):
-    """Checks the booking fields that the user types or picks."""
+def validate_vehicle(label, vehicle_type, make, model, color, plate):
+    """
+    Checks the saved vehicle form at once.
+    Label, vehicle type, make and model are required; color and plate may
+    be left empty.
+    """
+    if is_empty(label):
+        return (False, "Vehicle nickname is required.")
+    if len(label.strip()) > 30:
+        return (False, "Vehicle nickname is too long.")
+    if vehicle_type not in config.VEHICLE_TYPES:
+        return (False, "Pick a vehicle type.")
+    if is_empty(make):
+        return (False, "Make is required.")
+    if is_empty(model):
+        return (False, "Model is required.")
+    if len(color.strip()) > 30:
+        return (False, "Color is too long.")
+    if len(plate.strip()) > 12:
+        return (False, "Plate number is too long.")
+    return (True, "")
+
+
+def validate_address(label, address, barangay, city, landmark):
+    """
+    Checks the saved address form at once.
+    Label, street, barangay and city are required; landmark is optional.
+    """
+    if is_empty(label):
+        return (False, "Label is required.")
+    if len(label.strip()) > 30:
+        return (False, "Label is too long.")
     if is_empty(address):
-        return (False, "Service address is required.")
+        return (False, "Street address is required.")
     if len(address.strip()) < 5:
-        return (False, "Service address is too short.")
+        return (False, "Street address is too short.")
+    if is_empty(barangay):
+        return (False, "Barangay is required.")
+    if is_empty(city):
+        return (False, "City is required.")
+    if len(landmark.strip()) > 120:
+        return (False, "Landmark is too long.")
+    return (True, "")
 
-    date_ok, date_message = validate_date(date_text)
-    if not date_ok:
-        return (False, date_message)
 
-    if is_empty(zone_code):
-        return (False, "Please pick a service zone on the map.")
-
+def validate_new_password(new_password, confirm):
+    """
+    Checks a password change: the new password must be long enough and must
+    match its confirmation. (Correctness of the OLD password is checked
+    against the database by the caller.)
+    """
+    if is_empty(new_password):
+        return (False, "New password is required.")
+    if len(new_password) < 6:
+        return (False, "New password must be at least 6 characters.")
+    if new_password != confirm:
+        return (False, "New password and confirmation do not match.")
     return (True, "")

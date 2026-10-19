@@ -56,15 +56,6 @@ BLOCK_DARK = PRIMARY
 BLOCK_MID = ACCENT
 BLOCK_LIGHT = ACCENT_SOFT
 
-# Map picker
-MAP_BG = "#EDEBE5"
-MAP_ZONE_FILL = "#FFFFFF"
-MAP_ZONE_HOVER = "#E9F0EA"
-MAP_ZONE_SELECTED = "#D6E4DA"
-MAP_ZONE_BORDER = "#CFCBC2"
-MAP_PIN = "#C0453B"
-MAP_PIN_SHADOW = "#00000022"
-
 # ---------------------------------------------------------------------------
 # TYPOGRAPHY (all Text using the same family and a small type scale)
 # ---------------------------------------------------------------------------
