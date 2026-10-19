@@ -1,94 +1,117 @@
 """
 main.py
 =============================================================================
-AutoGlide — Mobile Auto Detailing Scheduler
+AutoGlide - Mobile Auto Detailing Scheduler
 Main application entry point.
 
 Responsibilities:
-  - Initializes the primary Tkinter window and styling properties
-  - Maintains global session state (logged in user, current booking draft)
-  - Manages screen navigation and transitions between views
+  - Creates the Tkinter window
+  - Holds session state (logged in user and the booking draft)
+  - Creates the database on first run
+  - Switches between screens (landing/login/register and the app shell)
 =============================================================================
 """
 
+import ctypes
 import tkinter as tk
 import theme
 import config
-from screens import LandingScreen, PlaceholderScreen
+import database
+
+from screens.landing_screen import LandingScreen
+from screens.login_screen import LoginScreen
+from screens.register_screen import RegisterScreen
+from screens.app_shell import AppShell
 
 
 class AutoGlideApp(tk.Tk):
-    """
-    Primary application window class.
-    Inherits from tk.Tk and acts as the central controller for the app.
-    """
+    """The main window. It also acts as the controller for the whole app."""
     def __init__(self):
         super().__init__()
 
-        # 1. Window Configuration
-        self.title(f"{config.BRAND_INFO['name']} — Mobile Auto Detailing Scheduler")
-        self.geometry("1200x780")
-        self.minsize(1020, 650)
-        self.configure(bg=theme.BG_MAIN)
+        # DPI awareness (comment: keep rendering crisp on Windows).
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
 
-        # 2. Session and Application State
-        # - current_user: None for guest, or user dict once logged in
-        # - booking_draft: holds selected vehicle, service tier, and add-ons
-        self.current_user = None
+        # 1. Window settings
+        self.title(config.BRAND_INFO["name"] + " - Mobile Auto Detailing Scheduler")
+        self.geometry("1280x780")
+        self.minsize(1000, 650)
+        self.configure(bg=theme.BG_APP)
+
+        # 2. Session state
+        self.current_user = None      # a database row, or None for guests
+        self.pending_screen = None    # screen to open after a successful login
         self.booking_draft = {
             "vehicle_type": "Sedan",
-            "tier_id": "wash_wax",
-            "add_ons": []
+            "tier_id": "wash_vacuum"
         }
 
-        # 3. Main Screen Host Container
-        # Holds whatever screen is currently active
-        self.container = tk.Frame(self, bg=theme.BG_MAIN)
-        self.container.pack(fill="both", expand=True)
+        # 3. Make sure the database and its tables exist
+        database.initialize_database()
 
-        # Active screen tracker
+        # 4. Container that holds the current screen
+        self.container = tk.Frame(self, bg=theme.BG_APP)
+        self.container.pack(fill="both", expand=True)
         self.current_screen = None
 
-        # 4. Load the Landing Screen by default
+        # 5. Start on the landing page
         self.show_screen("landing")
 
-    def show_screen(self, screen_name, **kwargs):
-        """
-        Switches the currently displayed screen.
-        Destroys the previous screen frame and instantiates the new one.
-
-        Supported screen names:
-          - 'landing'  : Main storefront landing page
-          - 'login'    : User & Admin login portal (placeholder)
-          - 'register' : Customer sign-up page (placeholder)
-          - 'booking'  : Detailing schedule & location wizard (placeholder)
-        """
-        # Clean up existing screen if present
+    def show_screen(self, screen_name):
+        """Destroys the current screen and builds the requested one."""
         if self.current_screen is not None:
             self.current_screen.destroy()
 
-        # Instantiate requested screen
         if screen_name == "landing":
             self.current_screen = LandingScreen(self.container, app=self)
-        elif screen_name in ("login", "register", "booking"):
-            self.current_screen = PlaceholderScreen(
-                self.container,
-                app=self,
-                screen_type=screen_name
-            )
+        elif screen_name == "login":
+            self.current_screen = LoginScreen(self.container, app=self)
+        elif screen_name == "register":
+            self.current_screen = RegisterScreen(self.container, app=self)
+        elif screen_name == "shell":
+            self.current_screen = AppShell(self.container, app=self)
         else:
-            # Fallback for unrecognized screen
-            self.current_screen = PlaceholderScreen(
-                self.container,
-                app=self,
-                screen_type="unknown"
-            )
+            self.current_screen = LandingScreen(self.container, app=self)
 
-        # Display the new screen
         self.current_screen.pack(fill="both", expand=True)
 
+    def login_success(self, user):
+        """Called by the login screen after a correct username and password."""
+        self.current_user = user
+        pending = self.pending_screen
+        self.pending_screen = None
+        self.show_screen("shell")
+        if pending == "new_booking":
+            if hasattr(self, "shell"):
+                self.shell.switch_view("new_booking")
 
-# Application execution entry point
+    def logout(self):
+        """Clears the session and returns to the landing page."""
+        self.current_user = None
+        self.pending_screen = None
+        if hasattr(self, "shell"):
+            del self.shell
+        self.show_screen("landing")
+
+    def request_booking(self, tier_id):
+        """
+        Called by the landing page. Stores the chosen package. If the guest
+        is not logged in yet, login is shown first, then the booking wizard.
+        """
+        self.booking_draft["tier_id"] = tier_id
+        if self.current_user is None:
+            self.pending_screen = "new_booking"
+            self.show_screen("login")
+        elif isinstance(self.current_screen, AppShell):
+            self.shell.switch_view("new_booking")
+        else:
+            self.show_screen("shell")
+
+
+# Application entry point
 if __name__ == "__main__":
     app = AutoGlideApp()
     app.mainloop()
