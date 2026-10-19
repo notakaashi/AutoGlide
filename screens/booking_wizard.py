@@ -125,8 +125,15 @@ class BookingWizard(tk.Frame):
 
     def _build_footer(self, step):
         """Back / Continue buttons under the step content."""
+        # kill the old footer first, otherwise buttons pile up per step
+        if getattr(self, "_footer", None) is not None:
+            try:
+                self._footer.destroy()
+            except Exception:
+                pass
         foot = tk.Frame(self.body, bg=theme.BG_SURFACE)
         foot.pack(fill="x", side="bottom", pady=(theme.PAD_MD, 0))
+        self._footer = foot
         if step > 0:
             Button(foot, text="Back",
                    command=lambda: self._go(step - 1),
@@ -151,6 +158,7 @@ class BookingWizard(tk.Frame):
         # Price labels belong to one step only - old ones die with the
         # step frame, so the list must be emptied on every new step.
         self._price_labels = []
+        self._clear_step()
         self._slot_frame = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
         self._slot_frame.pack(fill="x")
         {
@@ -165,8 +173,6 @@ class BookingWizard(tk.Frame):
     def _clear_step(self):
         """Removes the step content but keeps the card header."""
         for wdg in self._step_frame.winfo_children():
-            if wdg is self._slot_frame:
-                continue
             wdg.destroy()
 
     def _go(self, step):
