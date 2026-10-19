@@ -388,6 +388,31 @@ class ScrollFrame(tk.Frame):
         self.canvas.bind("<Configure>", self._on_canvas)
         self.bind_wheel(self.canvas)
         self.bind_wheel(self.inner)
+        # Wheel scrolling should work anywhere over the page, not only over
+        # the scrollbar: while the cursor is inside, capture the mouse wheel
+        # globally; when it leaves, release the global binding again.
+        self.bind("<Enter>", self._wheel_on)
+        self.bind("<Leave>", self._wheel_off)
+
+    def _wheel_on(self, event=None):
+        """Grabs the mouse wheel for this scroll area while hovering."""
+        self.bind_all("<MouseWheel>", self._wheel, add="+")
+        self.bind_all("<Button-4>", self._wheel, add="+")
+        self.bind_all("<Button-5>", self._wheel, add="+")
+
+    def _wheel_off(self, event=None):
+        """Releases the global wheel capture when the cursor leaves."""
+        self.unbind_all("<MouseWheel>")
+        self.unbind_all("<Button-4>")
+        self.unbind_all("<Button-5>")
+
+    def destroy(self):
+        """Releases the global wheel capture before the page goes away."""
+        try:
+            self._wheel_off()
+        except Exception:
+            pass
+        tk.Frame.destroy(self)
 
     def _on_inner(self, event=None):
         """Updates the scroll region when content changes."""
@@ -399,6 +424,8 @@ class ScrollFrame(tk.Frame):
 
     def _wheel(self, event):
         """Scrolls the canvas with the mouse wheel."""
+        if not self.winfo_exists():
+            return
         if event.delta:
             self.canvas.yview_scroll(-1 * int(event.delta / 120), "units")
         elif event.num == 4:

@@ -240,9 +240,13 @@ def t_wizard_full():
     app.shell.switch_view("new_booking")
     pump()
     wizard = app.shell.current_view
+    user_id = app.shell.current_user["id"]
     # remember which bookings exist before, to know which id is the new one
-    before_ids = {r["id"] for r in database.get_bookings_by_user(
-        app.shell.current_user["id"])}
+    before_ids = {r["id"] for r in database.get_bookings_by_user(user_id)}
+    # clean THIS TEST's leftovers only (never the user's real bookings)
+    for r in database.get_bookings_by_user(user_id):
+        if "99 Wizard Lane" in (r["address"] or ""):
+            database.delete_booking(r["id"])
     # Step 1: type a new car, tick "save this vehicle"
     wizard._v_label.set("Wizard car")
     wizard._v_type.set("Sedan")
@@ -259,11 +263,18 @@ def t_wizard_full():
     wizard._toggle_addon(first_addon)
     wizard._go(2)
     assert wizard._draft["step"] == 2
-    # Step 3: schedule
-    when = (datetime.date.today() + datetime.timedelta(days=3)).isoformat()
+    # Step 3: schedule - pick a date that still has room in the chosen slot
+    slot = config.TIME_SLOTS[1]
+    when = None
+    today = datetime.date.today()
+    for offset in range(3, config.MAX_ADVANCE_DAYS - 2):
+        candidate = (today + datetime.timedelta(days=offset)).isoformat()
+        if database.count_slot_bookings(candidate, slot) < config.SLOT_CAPACITY:
+            when = candidate
+            break
+    assert when, "no free date/slot found for the test"
     wizard._date_field.set(when)
     wizard._paint_slots()
-    slot = config.TIME_SLOTS[1]
     wizard._pick_slot(slot)
     wizard._go(3)
     assert wizard._draft["step"] == 3
@@ -291,10 +302,10 @@ def t_wizard_full():
     expected = (config.price_for("wash_vacuum", "Sedan")
                 + config.ADD_ONS[first_addon]["price"])
     assert booking["total_price"] == expected
-    # cleanup: delete this run's booking and every Wizard Lane leftover
-    final = database.get_bookings_by_user(app.shell.current_user["id"])
+    # cleanup: delete the booking this run just made (test artifact only)
+    final = database.get_bookings_by_user(user_id)
     for r in [r for r in final
-              if "Wizard Lane" in (r["address"] or "")]:
+              if "99 Wizard Lane" in (r["address"] or "")]:
         database.delete_booking(r["id"])
     # the saved vehicle/address from the checkboxes should exist now
     saved_v = [v for v in database.get_saved_vehicles(
@@ -446,6 +457,43 @@ def t_logout_old_data_intact():
         database.delete_user("brand_new_test")
 
 
+def t_saved_pick_then_package():
+    """Regression: pick a SAVED vehicle, then click packages and add-ons.
+    This used to crash on a stale price label; it must not."""
+    app.shell.switch_view("new_booking")
+    pump()
+    wizard = app.shell.current_view
+    before_ids = {r["id"] for r in database.get_bookings_by_user(
+        app.shell.current_user["id"])}
+    # first, one saved vehicle must exist
+    if not database.get_saved_vehicles(app.shell.current_user["id"]):
+        database.add_saved_vehicle(app.shell.current_user["id"], "Suite car",
+                                   "SUV", "Toyota", "RAV4", "Blue", "")
+    wizard._go(1)  # no vehicle typed yet, but saved one boots on the radio
+    # choose the saved vehicle radio (first saved row) like a mouse click
+    first_saved = str(database.get_saved_vehicles(
+        app.shell.current_user["id"])[0]["id"])
+    wizard._vehicle_choice.set(first_saved)
+    wizard._pick_vehicle()
+    assert wizard._draft["vehicle"]["id"] == int(first_saved)
+    wizard._go(2)
+    # hammer the package cards and add-ons (price bar lives on this step)
+    wizard._pick_tier("wash_wax")
+    wizard._pick_tier("showroom")
+    wizard._pick_tier("wash_vacuum")
+    for addon_id in sorted(config.ADD_ONS):
+        wizard._toggle_addon(addon_id)
+    wizard._toggle_addon(sorted(config.ADD_ONS)[0])
+    expected_total = config.price_for("wash_vacuum", wizard._v_type.get())
+    for addon_id in wizard._draft["addons"]:
+        expected_total = expected_total + config.ADD_ONS[addon_id]["price"]
+    assert wizard._price_labels[0].cget("text").find(
+        "\u20b1" + str(expected_total)) >= 0
+    # keep the test fast: jump back home after the crash-prone clicks
+    app.shell.switch_view("home")
+    pump()
+
+
 TESTS = [
     ("validators", t_validators),
     ("register and login", t_register_and_login),
@@ -458,6 +506,7 @@ TESTS = [
     ("saved address CRUD", t_saved_address_crud),
     ("profile password flow", t_profile_change_password),
     ("wizard full booking", t_wizard_full),
+    ("saved pick then package", t_saved_pick_then_package),
     ("wizard blocks bad data", t_wizard_block_bad_steps),
     ("my bookings live updates", t_my_bookings_flow),
     ("admin shell", t_admin_shell),

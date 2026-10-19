@@ -36,6 +36,7 @@ class BookingWizard(tk.Frame):
         self.user = shell.current_user
         super().__init__(master, bg=theme.BG_APP)
         self._dots = []
+        self._tier_cards = []
         self._vehicle_rows = []
         self._address_rows = []
         self._price_labels = []
@@ -69,6 +70,7 @@ class BookingWizard(tk.Frame):
         self._draft["vehicle_type"] = "Sedan"
         self._draft["addons"] = []
         self._draft["place"] = {}
+        self._draft["step"] = 0
         self._saved_vehicles = database.get_saved_vehicles(self.user["id"])
         self._saved_addresses = database.get_saved_addresses(self.user["id"])
         self._draft["vehicle"] = None
@@ -146,6 +148,9 @@ class BookingWizard(tk.Frame):
         self._paint_dots(step)
         self._slot_chips = {}
         self._addon_chips = {}
+        # Price labels belong to one step only - old ones die with the
+        # step frame, so the list must be emptied on every new step.
+        self._price_labels = []
         self._slot_frame = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
         self._slot_frame.pack(fill="x")
         {
@@ -259,6 +264,11 @@ class BookingWizard(tk.Frame):
                                    text=self._draft["vehicle"]["plate"]
                                    if self._draft["vehicle"] else "")
         self._v_plate.grid(row=0, column=3, sticky="w")
+        # Typing in the form means "new vehicle" - deselect any saved pick.
+        for field in (self._v_label, self._v_make, self._v_model,
+                      self._v_color, self._v_plate):
+            field.entry.bind("<FocusIn>",
+                             lambda e: self._switch_to_new_vehicle())
         tk.Label(form.body,
                  text="Fields marked * are required.",
                  font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
@@ -271,6 +281,12 @@ class BookingWizard(tk.Frame):
         if show_check:
             self._saved_vehicle_check = CheckField(
                 form.body, "Save this vehicle for next time", bg=theme.BG_SURFACE)
+
+    def _switch_to_new_vehicle(self):
+        """Switches to the typed form when the user edits a vehicle field."""
+        if getattr(self, "_vehicle_choice", None) and \
+                self._vehicle_choice.get().isdigit():
+            self._vehicle_choice.set("")
             self._saved_vehicle_check.pack(anchor="w", pady=(theme.PAD_SM, 0))
         else:
             self._saved_vehicle_check = None
@@ -433,12 +449,14 @@ class BookingWizard(tk.Frame):
         line = ("Base price   \u20b1" + str(base)
                 + "        Add-ons   \u20b1" + str(addon_total)
                 + "        Estimated total   \u20b1" + str(base + addon_total))
-        if not self._price_labels:
+        label = self._price_labels[0] if self._price_labels else None
+        if label is None or not label.winfo_exists():
+            # the old label died with the previous step - paint a fresh one
             label = tk.Label(self._step_frame, font=theme.FONT_BODY_BOLD,
                              fg=theme.PRIMARY, bg=theme.BG_SURFACE)
             label.pack(anchor="e")
-            self._price_labels.append(label)
-        self._price_labels[0].configure(text=line)
+            self._price_labels = [label]
+        label.configure(text=line)
 
     def _validate_package(self):
         """Package always has a valid value - nothing to check."""
@@ -549,11 +567,12 @@ class BookingWizard(tk.Frame):
                      font=theme.FONT_SMALL_BOLD, fg=theme.TEXT_MUTED,
                      bg=theme.BG_SURFACE).pack(anchor="w",
                                                pady=(0, theme.PAD_XS))
-            default_pick = self._saved_addresses[0]["id"]
             chosen = self._draft.get("address")
+            # "new" = the form below; a saved address is picked by id only
+            start = "new"
             if chosen and chosen.get("saved_id"):
-                default_pick = chosen["saved_id"]
-            self._address_choice = tk.StringVar(value=str(default_pick))
+                start = str(chosen["saved_id"])
+            self._address_choice = tk.StringVar(value=str(start))
             for a in self._saved_addresses:
                 lines = " - ".join(database.address_lines(
                     a["address"], a["barangay"], a["city"], a["landmark"]))
@@ -568,6 +587,15 @@ class BookingWizard(tk.Frame):
                          font=theme.FONT_BODY, fg=theme.TEXT,
                          bg=theme.BG_SOFT).pack(side="left", pady=6)
                 self._address_rows.append(item)
+            # last row: use the form instead of any saved address
+            fresh_row = tk.Frame(saved, bg=theme.BG_SOFT)
+            fresh_row.pack(fill="x", pady=(0, 6))
+            tk.Radiobutton(fresh_row, variable=self._address_choice,
+                           value="new", command=self._pick_new_address,
+                           text="+ Type a new address",
+                           bg=theme.BG_SOFT, cursor="hand2").pack(
+                               side="left", padx=(8, 4), pady=6)
+            self._address_rows.append(fresh_row)
 
         form = Card(self._step_frame, pad=theme.PAD_LG)
         form.pack(fill="both", expand=True, pady=(theme.PAD_MD, 0))
@@ -600,6 +628,11 @@ class BookingWizard(tk.Frame):
                                       text=chosen.get("landmark", ""))
         self._a_landmark.grid(row=2, column=0, columnspan=2, sticky="w",
                               pady=(6, 0))
+        # Typing in the form means "+ Type a new address" - auto-switch.
+        for field in (self._a_label, self._a_street, self._a_barangay,
+                      self._a_city, self._a_landmark):
+            field.entry.bind("<FocusIn>",
+                             lambda e: self._switch_to_new_address())
         if getattr(self, "_address_choice", None) and \
                 self._address_choice.get().isdigit():
             self._saved_address_check = None
@@ -608,6 +641,12 @@ class BookingWizard(tk.Frame):
                 form.body, "Save this address for next time",
                 bg=theme.BG_SURFACE)
             self._saved_address_check.pack(anchor="w", pady=(theme.PAD_SM, 0))
+
+    def _switch_to_new_address(self):
+        """Switches to the '+ Type a new address' option when the user types."""
+        if getattr(self, "_address_choice", None) and \
+                self._address_choice.get().isdigit():
+            self._address_choice.set("new")
 
     def _pick_address(self):
         """A saved address radio got picked - fill the address form."""
@@ -632,6 +671,13 @@ class BookingWizard(tk.Frame):
                 self._a_city.set(a["city"])
                 self._a_landmark.set(a["landmark"] or "")
                 return
+
+    def _pick_new_address(self):
+        """The '+ Type a new address' radio got picked - keep what is typed."""
+        pick = self._draft.get("address")
+        if pick is not None:
+            pick.pop("saved_id", None)
+            self._draft["address"] = pick
 
     def _validate_location(self):
         """Reads the address form; a saved pick wins until fields are edited."""

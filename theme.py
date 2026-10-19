@@ -61,20 +61,20 @@ BLOCK_LIGHT = ACCENT_SOFT
 # ---------------------------------------------------------------------------
 FONT_FAMILY = "Segoe UI"
 
-FONT_BRAND = (FONT_FAMILY, 15, "bold")
+FONT_BRAND = (FONT_FAMILY, 17, "bold")
 FONT_HERO = (FONT_FAMILY, 30, "bold")
-FONT_HERO_SUB = (FONT_FAMILY, 12, "normal")
-FONT_SECTION = (FONT_FAMILY, 18, "bold")
-FONT_TITLE = (FONT_FAMILY, 15, "bold")
-FONT_CARD_TITLE = (FONT_FAMILY, 12, "bold")
-FONT_PRICE = (FONT_FAMILY, 20, "bold")
+FONT_HERO_SUB = (FONT_FAMILY, 14, "normal")
+FONT_SECTION = (FONT_FAMILY, 21, "bold")
+FONT_TITLE = (FONT_FAMILY, 17, "bold")
+FONT_CARD_TITLE = (FONT_FAMILY, 14, "bold")
+FONT_PRICE = (FONT_FAMILY, 21, "bold")
 
-FONT_BODY = (FONT_FAMILY, 10, "normal")
-FONT_BODY_BOLD = (FONT_FAMILY, 10, "bold")
-FONT_BUTTON = (FONT_FAMILY, 10, "bold")
-FONT_SMALL = (FONT_FAMILY, 9, "normal")
-FONT_SMALL_BOLD = (FONT_FAMILY, 9, "bold")
-FONT_TINY = (FONT_FAMILY, 8, "normal")
+FONT_BODY = (FONT_FAMILY, 12, "normal")
+FONT_BODY_BOLD = (FONT_FAMILY, 12, "bold")
+FONT_BUTTON = (FONT_FAMILY, 12, "bold")
+FONT_SMALL = (FONT_FAMILY, 11, "normal")
+FONT_SMALL_BOLD = (FONT_FAMILY, 11, "bold")
+FONT_TINY = (FONT_FAMILY, 10, "normal")
 
 # ---------------------------------------------------------------------------
 # SPACING
