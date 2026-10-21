@@ -1,8 +1,8 @@
 """
 screens/login_screen.py
 =============================================================================
-Login screen for clients and the admin.
-Checks the username and password against the database.
+Login screen for clients and the admin. Two columns: a full-height photo on
+the left, the sign-in form on a white card on the right.
 =============================================================================
 """
 
@@ -10,11 +10,12 @@ import tkinter as tk
 from tkinter import messagebox
 import theme
 import database
+import utils.images
 from components import Card, EntryField, Button, Toast
 
 
 class LoginScreen(tk.Frame):
-    """Login screen."""
+    """Login screen: photo column + form column."""
     def __init__(self, master, app):
         self.app = app
         super().__init__(master, bg=theme.BG_APP)
@@ -22,9 +23,17 @@ class LoginScreen(tk.Frame):
         self._build()
 
     def _build(self):
-        """Centers the login form."""
-        center = tk.Frame(self, bg=theme.BG_APP)
-        center.pack(expand=True)
+        """Left: cover photo. Right: the form on a white card."""
+        photo_side = tk.Canvas(self, width=460, bg=theme.BG_SOFT,
+                               highlightthickness=0, bd=0)
+        photo_side.pack(side="left", fill="y", expand=True)
+        utils.images.cover_photo(photo_side, "login_side.jpg")
+
+        right = tk.Frame(self, bg=theme.BG_APP)
+        right.pack(side="right", fill="both", expand=True)
+        center = tk.Frame(right, bg=theme.BG_APP)
+        center.place(relx=0.5, rely=0.5, anchor="center")
+
         card = Card(center, pad=theme.PAD_XL)
         card.pack()
         body = card.body
@@ -36,10 +45,10 @@ class LoginScreen(tk.Frame):
                  bg=theme.BG_SURFACE).pack(anchor="w", pady=(2, theme.PAD_LG))
 
         self.username = EntryField(body, label="Username",
-                                   placeholder="e.g. jdoe", width=32)
+                                   placeholder="e.g. jdoe", width=30)
         self.username.pack(fill="x")
         self.password = EntryField(body, label="Password", show="*",
-                                   placeholder="Enter your password", width=32)
+                                   placeholder="Enter your password", width=30)
         self.password.pack(fill="x", pady=(theme.PAD_MD, 0))
 
         actions = tk.Frame(body, bg=theme.BG_SURFACE)
@@ -49,12 +58,6 @@ class LoginScreen(tk.Frame):
         Button(actions, text="Create an account",
                command=lambda: self.app.show_screen("register"),
                variant="ghost").pack(side="left", padx=theme.PAD_SM)
-
-        footer = tk.Frame(body, bg=theme.BG_SURFACE)
-        footer.pack(fill="x", pady=(theme.PAD_MD, 0))
-        tk.Label(footer, text="Default admin: username admin / password admin123",
-                 font=theme.FONT_TINY, fg=theme.TEXT_FAINT,
-                 bg=theme.BG_SURFACE).pack(anchor="w")
 
     def do_login(self):
         """Reads the fields and checks them against the database."""

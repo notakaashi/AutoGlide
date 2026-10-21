@@ -47,7 +47,8 @@ class ClientShell(tk.Frame):
     def __init__(self, master, app):
         self.app = app
         self.current_user = app.current_user
-        super().__init__(master, bg=theme.BG_SURFACE)
+        # beige app background, not white, so page edges blend with content
+        super().__init__(master, bg=theme.BG_APP)
         self.pack(fill="both", expand=True)
         self.current_view = None
         self.current_view_name = ""
@@ -97,11 +98,13 @@ class ClientShell(tk.Frame):
         self._profile_btn.pack()
         self._profile_btn.bind("<Button-1>", self._open_profile_menu)
 
+        # one content frame only - the old nested pair left empty frames
+        # behind and showed white gutters around each page
+        # padx keeps the page margin that views expected before
         content = tk.Frame(self, bg=theme.BG_APP)
-        content.pack(fill="both", expand=True)
-        self._content_holder = tk.Frame(content, bg=theme.BG_APP)
-        self._content_holder.pack(fill="both", expand=True,
-                                  padx=(theme.PAD_LG * 2, theme.PAD_LG * 2))
+        content.pack(fill="both", expand=True, padx=theme.PAD_LG * 2)
+        self._content = content
+        self._content_holder = content
         self.switch_view("home")
 
     def _initials(self):
@@ -172,11 +175,11 @@ class ClientShell(tk.Frame):
             name = "home"
         self.current_view_name = name
         self.built_name = name
-        self._content_holder.destroy()
-        self._content_holder = tk.Frame(self, bg=theme.BG_APP)
-        self._content_holder.pack(fill="both", expand=True,
-                                  padx=theme.PAD_LG * 2)
-        view = builders[name](self._content_holder, self)
+        # rebuild inside the single content frame so no empty frame stacks up
+        for child in self._content.winfo_children():
+            child.destroy()
+        self._content_holder = self._content
+        view = builders[name](self._content, self)
         view.pack(fill="both", expand=True)
         self.current_view = view
 
@@ -206,7 +209,7 @@ class AdminShell(tk.Frame):
     # ------------------------------------------------------------------
     def _build(self):
         """Sidebar + wide content area."""
-        sidebar = tk.Frame(self, bg=theme.PRIMARY, width=210)
+        sidebar = tk.Frame(self, bg=theme.PRIMARY, width=220)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
 
@@ -256,7 +259,8 @@ class AdminShell(tk.Frame):
         """Sidebar hover color, skipping the active row."""
         if row is self._current_row:
             return
-        row.configure(bg=theme.PRIMARY_DARK if inside else theme.PRIMARY)
+        # PRIMARY_HOVER exists; PRIMARY_DARK does not (crashed on hover)
+        row.configure(bg=theme.PRIMARY_HOVER if inside else theme.PRIMARY)
 
     # ------------------------------------------------------------------
     # VIEW SWITCHING

@@ -51,16 +51,17 @@ class AdminClientsView(tk.Frame):
         self._table = DataTable(
             table_card.body,
             columns=[
-                {"key": "id", "title": "ID", "minsize": 50, "weight": 0},
-                {"key": "name", "title": "Name", "minsize": 150,
+                # explicit widths so no column clips at 1280x780
+                {"key": "id", "title": "ID", "minsize": 55, "weight": 0},
+                {"key": "name", "title": "Name", "minsize": 160,
                  "weight": 1},
-                {"key": "username", "title": "Username", "minsize": 120,
+                {"key": "username", "title": "Username", "minsize": 130,
                  "weight": 1},
-                {"key": "phone", "title": "Phone", "minsize": 130,
+                {"key": "phone", "title": "Phone", "minsize": 140,
                  "weight": 1},
-                {"key": "email", "title": "Email", "minsize": 180,
+                {"key": "email", "title": "Email", "minsize": 200,
                  "weight": 1},
-                {"key": "bookings", "title": "Bookings", "minsize": 80,
+                {"key": "bookings", "title": "Bookings", "minsize": 90,
                  "weight": 0, "anchor": "e"},
             ],
             on_select=self._on_pick)

@@ -56,9 +56,10 @@ def bind_wheel(widget, handler):
 # BUTTON
 # ---------------------------------------------------------------------------
 class Button(tk.Canvas):
-    """A flat rounded button with primary, secondary, ghost, and danger styles."""
+    """A flat rounded button with primary, secondary, ghost, danger, and
+    light (white-on-pine) styles. Buttons are 44px tall by default."""
     def __init__(self, master, text="", command=None, variant="primary",
-                 height=36, font=theme.FONT_BUTTON, pad=18, bg=None):
+                 height=44, font=theme.FONT_BUTTON, pad=18, bg=None):
         self._parent_bg = bg if bg else bg_of(master)
         self._font = tkfont.Font(font=font)
         self._font_spec = font
@@ -89,6 +90,10 @@ class Button(tk.Canvas):
         if variant == "danger":
             return (theme.DANGER, theme.DANGER_HOVER, theme.DANGER,
                     theme.TEXT_ON_DARK, theme.DANGER)
+        if variant == "light":
+            # white button for use on a pine (PRIMARY) panel
+            return (theme.BG_SURFACE, "#EFEEE8", theme.BORDER, theme.PRIMARY,
+                    theme.BG_SURFACE)
         return (theme.PRIMARY, theme.PRIMARY_HOVER, theme.PRIMARY_ACTIVE,
                 theme.TEXT_ON_DARK, theme.PRIMARY)
 
@@ -146,9 +151,10 @@ class Button(tk.Canvas):
 # CARD (rounded panel that grows with its content)
 # ---------------------------------------------------------------------------
 class Card(tk.Canvas):
-    """A rounded surface panel. Put content inside card.body."""
-    def __init__(self, master, radius=theme.RADIUS_MD, bg=theme.BG_SURFACE,
-                 border=theme.BORDER, pad=theme.PAD_MD, **kwargs):
+    """A rounded surface panel (14px corners by default).
+    Put content inside card.body."""
+    def __init__(self, master, radius=theme.RADIUS_LG, bg=theme.BG_SURFACE,
+                 border=theme.BORDER, pad=theme.PAD_MD, border_w=1, **kwargs):
         self._parent_bg = bg_of(master)
         super().__init__(master, bg=self._parent_bg, highlightthickness=0,
                          bd=0, **kwargs)
@@ -156,6 +162,7 @@ class Card(tk.Canvas):
         self.card_bg = bg  # public alias used when screens repaint cards
         self._radius = radius
         self._border = border
+        self._border_w = border_w
         self._pad = pad
         self._last_h = -1
         self._last_w = -1
@@ -188,11 +195,11 @@ class Card(tk.Canvas):
         self._draw(self.winfo_width(), self.winfo_height())
 
     def _draw(self, w, h):
-        """Draws the rounded background and thin border."""
+        """Draws the rounded background and border."""
         self.delete("cardbg")
         rounded_rectangle(self, 1, 1, w - 1, h - 1, self._radius,
-                          fill=self._card_bg, outline=self._border, width=1,
-                          tags="cardbg")
+                          fill=self._card_bg, outline=self._border,
+                          width=self._border_w, tags="cardbg")
         self.tag_lower("cardbg")
 
 
@@ -788,9 +795,10 @@ class DataTable(tk.Frame):
         self._row_frames.append(frame)
 
         for widget in [frame] + widgets:
-            widget.bind("<Button-1>", lambda e, i=index: self._select(i))
-            widget.bind("<Enter>", lambda e, f=frame: self._hover(f, True))
-            widget.bind("<Leave>", lambda e, f=frame: self._hover(f, False))
+            # e=None so a stray zero-arg callback does not crash the app
+            widget.bind("<Button-1>", lambda e=None, i=index: self._select(i))
+            widget.bind("<Enter>", lambda e=None, f=frame: self._hover(f, True))
+            widget.bind("<Leave>", lambda e=None, f=frame: self._hover(f, False))
 
     def _paint_row(self, frame, color):
         """Recolors a row and its cells."""

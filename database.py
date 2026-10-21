@@ -16,7 +16,9 @@ Uses only the standard library (sqlite3, os, datetime).
 =============================================================================
 """
 
+import hashlib
 import os
+import secrets
 import sqlite3
 import datetime
 import config
@@ -192,6 +194,26 @@ def _migrate(connection):
 
 
 # ---------------------------------------------------------------------------
+# PASSWORDS (salted sha256; old plaintext rows migrate on first login)
+# ---------------------------------------------------------------------------
+def hash_password(password, salt=None):
+    """Returns 'salt$hash' for a password, making a random salt when none."""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    digest = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    return salt + "$" + digest
+
+
+def verify_password(password, stored):
+    """True when the password matches the stored 'salt$hash' text."""
+    if "$" not in stored:
+        return False
+    salt, digest = stored.split("$", 1)
+    check = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    return check == digest
+
+
+# ---------------------------------------------------------------------------
 # SEEDING (only fills in what is missing)
 # ---------------------------------------------------------------------------
 def _seed_defaults(connection):
@@ -205,7 +227,8 @@ def _seed_defaults(connection):
             "INSERT INTO users (full_name, username, phone, email, password, role, "
             "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (admin_data["full_name"], admin_data["username"],
-             admin_data["phone"], admin_data["email"], admin_data["password"],
+             admin_data["phone"], admin_data["email"],
+             hash_password(admin_data["password"]),
              admin_data["role"], _now())
         )
     connection.commit()
@@ -244,14 +267,15 @@ def delete_user(username):
 
 
 def create_user(full_name, username, phone, email, password, role="client"):
-    """Inserts a new user and returns the new row id."""
+    """Inserts a new user and returns the new row id (password is hashed)."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
         cursor.execute(
             "INSERT INTO users (full_name, username, phone, email, password, role, "
             "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (full_name, username, phone, email, password, role, _now())
+            (full_name, username, phone, email, hash_password(password), role,
+             _now())
         )
         connection.commit()
         return cursor.lastrowid
@@ -260,15 +284,30 @@ def create_user(full_name, username, phone, email, password, role="client"):
 
 
 def login_user(username, password):
-    """Returns the matching user row, or None when the login is wrong."""
+    """Returns the matching user row, or None when the login is wrong.
+
+    Old accounts still have a plaintext password; those migrate to a
+    salted hash the moment they sign in successfully.
+    """
     connection = get_connection()
     try:
         cursor = connection.cursor()
-        cursor.execute(
-            "SELECT * FROM users WHERE username = ? AND password = ?",
-            (username, password)
-        )
-        return cursor.fetchone()
+        cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+        if user is None:
+            return None
+        stored = user["password"] or ""
+        if "$" in stored:
+            if not verify_password(password, stored):
+                return None
+        else:
+            # legacy plaintext row - compare and upgrade to a salted hash
+            if stored != password:
+                return None
+            cursor.execute("UPDATE users SET password = ? WHERE id = ?",
+                           (hash_password(password), user["id"]))
+            connection.commit()
+        return user
     finally:
         connection.close()
 
@@ -285,7 +324,7 @@ def get_user(user_id):
 
 
 def update_user(user_id, full_name, phone, email, password=None):
-    """Updates a user's profile, and the password only when one is given."""
+    """Updates a user's profile, and the password (hashed) when given."""
     connection = get_connection()
     try:
         cursor = connection.cursor()
@@ -293,7 +332,7 @@ def update_user(user_id, full_name, phone, email, password=None):
             cursor.execute(
                 "UPDATE users SET full_name = ?, phone = ?, email = ?, password = ? "
                 "WHERE id = ?",
-                (full_name, phone, email, password, user_id)
+                (full_name, phone, email, hash_password(password), user_id)
             )
         else:
             cursor.execute(

@@ -11,7 +11,8 @@ from tkinter import messagebox
 import theme
 import database
 import validators
-from components import Card, EntryField, Button, Toast
+import utils.images
+from components import Card, EntryField, Button, Toast, ScrollFrame
 
 
 class RegisterScreen(tk.Frame):
@@ -23,9 +24,19 @@ class RegisterScreen(tk.Frame):
         self._build()
 
     def _build(self):
-        """Builds the registration form."""
-        center = tk.Frame(self, bg=theme.BG_APP)
-        center.pack(expand=True)
+        """Left: cover photo. Right: the registration form on a white card."""
+        photo_side = tk.Canvas(self, width=460, bg=theme.BG_SOFT,
+                               highlightthickness=0, bd=0)
+        photo_side.pack(side="left", fill="y", expand=True)
+        utils.images.cover_photo(photo_side, "login_side.jpg")
+
+        right = tk.Frame(self, bg=theme.BG_APP)
+        right.pack(side="right", fill="both", expand=True)
+        # scroll so the tall form still fits the smallest window
+        scroll = ScrollFrame(right, bg=theme.BG_APP)
+        scroll.pack(fill="both", expand=True)
+        center = tk.Frame(scroll.inner, bg=theme.BG_APP)
+        center.pack(pady=theme.PAD_XL)
         card = Card(center, pad=theme.PAD_XL)
         card.pack()
         body = card.body

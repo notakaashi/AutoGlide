@@ -72,16 +72,17 @@ class AdminBookingsView(tk.Frame):
         self._table = DataTable(
             table_card.body,
             columns=[
-                {"key": "id", "title": "Ref", "minsize": 50, "weight": 0},
-                {"key": "client", "title": "Client", "minsize": 130,
+                # explicit widths so no column clips at 1280x780
+                {"key": "id", "title": "Ref", "minsize": 55, "weight": 0},
+                {"key": "client", "title": "Client", "minsize": 150,
                  "weight": 1},
-                {"key": "package", "title": "Package", "minsize": 130,
+                {"key": "package", "title": "Package", "minsize": 150,
                  "weight": 1},
-                {"key": "when", "title": "Date and time", "minsize": 180,
+                {"key": "when", "title": "Date and time", "minsize": 200,
                  "weight": 1},
-                {"key": "total", "title": "Total", "minsize": 80,
+                {"key": "total", "title": "Total", "minsize": 90,
                  "weight": 0, "anchor": "e"},
-                {"key": "status", "title": "Status", "minsize": 110,
+                {"key": "status", "title": "Status", "minsize": 120,
                  "weight": 0, "pill": True},
             ],
             on_select=self._on_pick)
@@ -214,9 +215,33 @@ class AdminBookingsView(tk.Frame):
         save_row.pack(fill="x", pady=(theme.PAD_MD, 0))
         Button(save_row, text="Save status",
                command=self._save_status, variant="primary").pack(side="right")
+        # quick answers: a fresh Pending request can go both ways at once
+        if booking["status"] == "Pending":
+            quick = tk.Frame(self._detail, bg=theme.BG_SURFACE)
+            quick.pack(fill="x", pady=(theme.PAD_SM, 0))
+            tk.Label(quick, text="Quick answer", font=theme.FONT_SMALL_BOLD,
+                     fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE).pack(
+                         anchor="w")
+            row = tk.Frame(quick, bg=theme.BG_SURFACE)
+            row.pack(anchor="w", pady=(4, 0))
+            Button(row, text="Accept", height=36,
+                   command=lambda: self._set_status(booking["id"],
+                                                    "Confirmed"),
+                   variant="primary").pack(side="left")
+            Button(row, text="Decline", height=36, variant="ghost",
+                   command=lambda: self._set_status(booking["id"],
+                                                    "Cancelled")
+                   ).pack(side="left", padx=(theme.PAD_SM, 0))
         Button(self._detail, text="Delete booking",
                command=self._delete, variant="ghost").pack(
                    anchor="w", pady=(theme.PAD_MD, 0))
+
+    def _set_status(self, booking_id, status):
+        """One-click accept / decline, then repaints the table."""
+        database.update_status(booking_id, status)
+        Toast(self, "Booking #" + str(booking_id) + " saved as " + status,
+              variant="ok")
+        self.reload()
 
     def _label(self, title, value):
         """One title + value line."""

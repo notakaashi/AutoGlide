@@ -159,8 +159,6 @@ class BookingWizard(tk.Frame):
         # step frame, so the list must be emptied on every new step.
         self._price_labels = []
         self._clear_step()
-        self._slot_frame = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
-        self._slot_frame.pack(fill="x")
         {
             0: self._step_vehicle,
             1: self._step_package,
@@ -200,6 +198,7 @@ class BookingWizard(tk.Frame):
     def _step_vehicle(self):
         """Choose a saved vehicle or type a new one."""
         self._clear_step()
+        self._vehicle_rows = []
         wrap = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
         wrap.pack(fill="x")
         if self._saved_vehicles:
@@ -209,9 +208,12 @@ class BookingWizard(tk.Frame):
                      font=theme.FONT_SMALL_BOLD, fg=theme.TEXT_MUTED,
                      bg=theme.BG_SURFACE).pack(anchor="w",
                                                pady=(0, theme.PAD_XS))
-            self._vehicle_choice = tk.StringVar(value=""
-                                                if self._draft["vehicle"] is None
-                                                else str(self._draft["vehicle"]["id"]))
+            chosen = self._draft.get("vehicle") or {}
+            # "new" = the form below, like the address step
+            start = "new"
+            if chosen.get("id"):
+                start = str(chosen["id"])
+            self._vehicle_choice = tk.StringVar(value=str(start))
             for v in self._saved_vehicles:
                 item = tk.Frame(saved, bg=theme.BG_SOFT)
                 item.pack(fill="x", pady=3)
@@ -226,9 +228,19 @@ class BookingWizard(tk.Frame):
                          fg=theme.TEXT, bg=theme.BG_SOFT).pack(
                              side="left", pady=6)
                 self._vehicle_rows.append(item)
+            # last row: use the form instead of a saved vehicle
+            fresh_row = tk.Frame(saved, bg=theme.BG_SOFT)
+            fresh_row.pack(fill="x", pady=(0, 6))
+            tk.Radiobutton(fresh_row, variable=self._vehicle_choice,
+                           value="new", command=self._pick_new_vehicle,
+                           text="+ Type a new vehicle",
+                           bg=theme.BG_SOFT, cursor="hand2").pack(
+                               side="left", padx=(8, 4), pady=6)
+            self._vehicle_rows.append(fresh_row)
 
         form = Card(self._step_frame, pad=theme.PAD_LG)
         form.pack(fill="both", expand=True, pady=(theme.PAD_MD, 0))
+        self._vehicle_form_body = form.body
         tk.Label(form.body, text="Vehicle details",
                  font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
                  bg=theme.BG_SURFACE).pack(anchor="w")
@@ -280,22 +292,52 @@ class BookingWizard(tk.Frame):
                  font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
                  bg=theme.BG_SURFACE).pack(anchor="w",
                                            pady=(theme.PAD_XS, 0))
-        show_check = True
+        # save checkbox shows in "new vehicle" mode only
         if getattr(self, "_vehicle_choice", None) and \
                 self._vehicle_choice.get().isdigit():
-            show_check = False
-        if show_check:
+            self._saved_vehicle_check = None
+        else:
             self._saved_vehicle_check = CheckField(
                 form.body, "Save this vehicle for next time", bg=theme.BG_SURFACE)
+            self._saved_vehicle_check.pack(anchor="w", pady=(theme.PAD_SM, 0))
 
     def _switch_to_new_vehicle(self):
-        """Switches to the typed form when the user edits a vehicle field."""
+        """Switches to the typed form when the user edits a vehicle field.
+        Keeps the typed text; only the explicit radio clears the form."""
         if getattr(self, "_vehicle_choice", None) and \
                 self._vehicle_choice.get().isdigit():
-            self._vehicle_choice.set("")
+            self._vehicle_choice.set("new")
+            self._draft["vehicle"] = None
+            if self._saved_vehicle_check is None:
+                self._saved_vehicle_check = CheckField(
+                    getattr(self, "_vehicle_form_body", self._step_frame),
+                    "Save this vehicle for next time", bg=theme.BG_SURFACE)
+            try:
+                self._saved_vehicle_check.pack(anchor="w",
+                                               pady=(theme.PAD_SM, 0))
+            except Exception:
+                pass
+
+    def _pick_new_vehicle(self):
+        """+ Type a new vehicle picked. Clears the saved pick and the form
+        so nothing feeds the typed values underneath."""
+        self._vehicle_choice.set("new")
+        self._draft["vehicle"] = None
+        self._v_label.set("")
+        self._v_type.set(self._draft.get("vehicle_type", "Sedan"))
+        self._v_make.set("")
+        self._v_model.set("")
+        self._v_color.set("")
+        self._v_plate.set("")
+        # bring back the save checkbox if a saved pick removed it
+        if self._saved_vehicle_check is None:
+            self._saved_vehicle_check = CheckField(
+                getattr(self, "_vehicle_form_body", self._step_frame),
+                "Save this vehicle for next time", bg=theme.BG_SURFACE)
+        try:
             self._saved_vehicle_check.pack(anchor="w", pady=(theme.PAD_SM, 0))
-        else:
-            self._saved_vehicle_check = None
+        except Exception:
+            pass
 
     def _pick_vtype(self):
         """Vehicle type radio changed - update price labels as well."""
@@ -330,7 +372,9 @@ class BookingWizard(tk.Frame):
 
     def _validate_vehicle(self):
         """Reads the form back into the draft; validates it."""
+        # id always present (None when typed) so step-1 rerender never KeyErrors
         data = {
+            "id": None,
             "label": self._v_label.get().strip(),
             "vehicle_type": self._v_type.get(),
             "make": self._v_make.get().strip(),
