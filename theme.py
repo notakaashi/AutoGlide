@@ -70,12 +70,12 @@ FONT_TITLE = (FONT_FAMILY, 20, "bold")
 FONT_CARD_TITLE = (FONT_FAMILY, 15, "bold")
 FONT_PRICE = (FONT_FAMILY, 22, "bold")
 
-FONT_BODY = (FONT_FAMILY, 12, "normal")
-FONT_BODY_BOLD = (FONT_FAMILY, 12, "bold")
-FONT_BUTTON = (FONT_FAMILY, 12, "bold")
-FONT_SMALL = (FONT_FAMILY, 11, "normal")
-FONT_SMALL_BOLD = (FONT_FAMILY, 11, "bold")
-FONT_TINY = (FONT_FAMILY, 10, "normal")
+FONT_BODY = (FONT_FAMILY, 13, "normal")
+FONT_BODY_BOLD = (FONT_FAMILY, 13, "bold")
+FONT_BUTTON = (FONT_FAMILY, 13, "bold")
+FONT_SMALL = (FONT_FAMILY, 12, "normal")
+FONT_SMALL_BOLD = (FONT_FAMILY, 12, "bold")
+FONT_TINY = (FONT_FAMILY, 11, "normal")
 
 # ---------------------------------------------------------------------------
 # SPACING

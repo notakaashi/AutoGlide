@@ -54,6 +54,7 @@ class BookingWizard(tk.Frame):
         self._draft.setdefault("place", {})
         self._load_fresh_draft()
 
+        # the shell already builds this view inside a centered column
         self.card = Card(self, radius=theme.RADIUS_LG, pad=theme.PAD_LG)
         self.card.pack(fill="both", expand=True, padx=theme.PAD_LG,
                        pady=theme.PAD_LG)
@@ -247,38 +248,38 @@ class BookingWizard(tk.Frame):
 
         row = tk.Frame(form.body, bg=theme.BG_SURFACE)
         row.pack(fill="x", pady=(theme.PAD_SM, 0))
-        self._v_label = EntryField(row, label="Nickname *", width=18,
+        self._v_label = EntryField(row, label="Nickname *", width=24,
                                    placeholder="e.g. Daily car",
                                    text=self._draft["vehicle"]["label"] if
                                    self._draft["vehicle"] else "")
         self._v_label.pack(side="left")
         self._v_type = tk.StringVar(value=self._draft["vehicle_type"])
         seg = tk.Frame(row, bg=theme.BG_SURFACE)
-        seg.pack(side="left", padx=(16, 0))
+        seg.pack(side="left", padx=(24, 0), pady=(18, 0))
         for vt in config.VEHICLE_TYPES:
             b = tk.Radiobutton(seg, text=vt, variable=self._v_type,
                                value=vt, command=self._pick_vtype,
                                font=theme.FONT_BODY, bg=theme.BG_SURFACE,
                                cursor="hand2")
-            b.pack(side="left", padx=(0, 8))
+            b.pack(side="left", padx=(0, 14))
             self._vehicle_rows.append(b)
 
         grid = tk.Frame(form.body, bg=theme.BG_SURFACE)
         grid.pack(fill="x", pady=(theme.PAD_SM, 0))
-        self._v_make = EntryField(grid, width=16, label="Make *",
+        self._v_make = EntryField(grid, width=22, label="Make *",
                                   placeholder="e.g. Toyota",
                                   text=self._draft["vehicle"]["make"]
                                   if self._draft["vehicle"] else "")
-        self._v_make.grid(row=0, column=0, padx=(0, 12), sticky="w")
-        self._v_model = EntryField(grid, width=16, label="Model *",
+        self._v_make.grid(row=0, column=0, padx=(0, 18), sticky="w")
+        self._v_model = EntryField(grid, width=22, label="Model *",
                                    text=self._draft["vehicle"]["model"]
                                    if self._draft["vehicle"] else "")
-        self._v_model.grid(row=0, column=1, padx=(0, 12), sticky="w")
-        self._v_color = EntryField(grid, width=12, label="Color",
+        self._v_model.grid(row=0, column=1, padx=(0, 18), sticky="w")
+        self._v_color = EntryField(grid, width=16, label="Color",
                                    text=self._draft["vehicle"]["color"]
                                    if self._draft["vehicle"] else "")
-        self._v_color.grid(row=0, column=2, padx=(0, 12), sticky="w")
-        self._v_plate = EntryField(grid, width=12, label="Plate",
+        self._v_color.grid(row=0, column=2, padx=(0, 18), sticky="w")
+        self._v_plate = EntryField(grid, width=16, label="Plate",
                                    text=self._draft["vehicle"]["plate"]
                                    if self._draft["vehicle"] else "")
         self._v_plate.grid(row=0, column=3, sticky="w")
@@ -659,25 +660,25 @@ class BookingWizard(tk.Frame):
         grid = tk.Frame(form.body, bg=theme.BG_SURFACE)
         grid.pack(fill="x", pady=(theme.PAD_SM, 0))
         chosen = self._draft.get("address") or {}
-        self._a_label = EntryField(grid, width=16, label="Label *",
+        self._a_label = EntryField(grid, width=20, label="Label *",
                                    placeholder="Home / Office",
                                    text=chosen.get("label", ""))
-        self._a_label.grid(row=0, column=0, sticky="w", padx=(0, 12))
-        self._a_street = EntryField(grid, width=24, label="Street address *",
+        self._a_label.grid(row=0, column=0, sticky="w", padx=(0, 18))
+        self._a_street = EntryField(grid, width=32, label="Street address *",
                                     placeholder="House number and street",
                                     text=chosen.get("address", ""))
         self._a_street.grid(row=0, column=1, sticky="w")
-        self._a_barangay = EntryField(grid, width=14, label="Barangay *",
+        self._a_barangay = EntryField(grid, width=20, label="Barangay *",
                                       text=chosen.get("barangay", ""))
-        self._a_barangay.grid(row=1, column=0, sticky="w", pady=(6, 0))
-        self._a_city = EntryField(grid, width=14, label="City *",
+        self._a_barangay.grid(row=1, column=0, sticky="w", pady=(10, 0))
+        self._a_city = EntryField(grid, width=20, label="City *",
                                   text=chosen.get("city", ""))
-        self._a_city.grid(row=1, column=1, sticky="w", pady=(6, 0))
-        self._a_landmark = EntryField(grid, width=30, label="Landmark",
+        self._a_city.grid(row=1, column=1, sticky="w", pady=(10, 0))
+        self._a_landmark = EntryField(grid, width=42, label="Landmark",
                                       placeholder="e.g. beside the bakery",
                                       text=chosen.get("landmark", ""))
         self._a_landmark.grid(row=2, column=0, columnspan=2, sticky="w",
-                              pady=(6, 0))
+                              pady=(10, 0))
         # Typing in the form means "+ Type a new address" - auto-switch.
         for field in (self._a_label, self._a_street, self._a_barangay,
                       self._a_city, self._a_landmark):

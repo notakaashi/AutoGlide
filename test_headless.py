@@ -26,7 +26,8 @@ import theme
 import validators
 
 from screens.app_shell import ClientShell, AdminShell
-from screens.landing_screen import LandingScreen, MarketingContent
+from screens.landing_screen import LandingScreen
+from screens.marketing import MarketingBody
 
 
 results = []
@@ -166,7 +167,7 @@ def t_guest_landing():
 def t_marketing_prices():
     """Package cards render with the config prices for the Sedan."""
     holder = tk.Frame(app, bg=theme.BG_APP)
-    content = MarketingContent(holder, app)
+    content = MarketingBody(holder, app)
     pump()
     for tier in config.SERVICE_TIERS:
         price = config.price_for(tier["id"], "Sedan")

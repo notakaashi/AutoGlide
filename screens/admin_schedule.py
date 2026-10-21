@@ -33,7 +33,8 @@ CHIPS_NAMES = ["Pending", "Confirmed", "Completed"]
 class AdminScheduleView(tk.Frame):
     """Staff month calendar with per-day status chips and a day list."""
     # fixed height for every calendar row so the grid never jiggles
-    CELL_H = 84
+    # (a 6-week month then fits even the 1000x650 minimum window)
+    CELL_H = 72
 
     def __init__(self, master, shell):
         self.shell = shell
@@ -154,10 +155,13 @@ class AdminScheduleView(tk.Frame):
         self._refresh_day_list()
 
     def _day_cell(self, r, c, iso, day, chips):
-        """One calendar cell: day number + status chips, click to select."""
+        """One calendar cell: day number + status chips, click to select.
+        The canvas gets an explicit height - without it every row is the
+        265px Canvas default and the month overflows the window."""
         selected = iso == self.selected_date
         is_today = iso == _today().isoformat() and not selected
-        cell = tk.Canvas(self._grid, bg=theme.PRIMARY if selected
+        cell = tk.Canvas(self._grid, height=self.CELL_H,
+                         bg=theme.PRIMARY if selected
                          else theme.BG_SOFT,
                          highlightthickness=2 if (selected or is_today) else 1,
                          highlightbackground=theme.PRIMARY

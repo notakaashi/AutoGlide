@@ -219,6 +219,53 @@ class SectionHeading(tk.Frame):
 
 
 # ---------------------------------------------------------------------------
+# CENTERED COLUMN (content column capped at a width, centered in its parent)
+# ---------------------------------------------------------------------------
+class CenteredColumn(tk.Frame):
+    """A content limit: everything packed inside stays within `width`
+    pixels and the whole column centers itself in the parent frame.
+
+    Pages pack their sections in here so wide windows do not leave
+    everything hugging the left edge. Height always follows the content
+    (so it also works inside a ScrollFrame).
+    """
+    def __init__(self, master, width=980, bg=None):
+        self._target = width
+        self._last_master_w = 0
+        super().__init__(master, bg=bg or bg_of(master))
+        # fill="x" only: several columns can stack and the height always
+        # follows the content, which keeps ScrollFrame pages working
+        self.pack(fill="x")
+        # recompute the side padding when the page is resized. Hysteresis
+        # matters: re-labelling padx on every pixel of jitter (the
+        # scrollbar can appear and disappear around the target width)
+        # causes an infinite <Configure> loop that hangs the app.
+        self.master.bind("<Configure>", self._recenter, add="+")
+        # views are often built into an already-sized window, so no
+        # <Configure> will ever fire - apply the centering right away
+        self.after_idle(self._recenter)
+
+    def _recenter(self, event=None):
+        """Equal side padding = centered column of the target width."""
+        try:
+            if not self.winfo_exists():
+                return
+            master = self.master
+            available = master.winfo_width()
+            if available <= 1:
+                return
+            if abs(available - self._last_master_w) < 40:
+                return
+            self._last_master_w = available
+            pad = max(0, (available - self._target) // 2)
+            if self.pack_info().get("padx") != pad:
+                self.pack_configure(padx=pad)
+        except Exception:
+            # a destroyed column can still receive the parent's <Configure>
+            pass
+
+
+# ---------------------------------------------------------------------------
 # STAT CARD
 # ---------------------------------------------------------------------------
 class StatCard(Card):
@@ -481,7 +528,7 @@ class EntryField(tk.Frame):
         if show:
             options["show"] = show
         self.entry = tk.Entry(self, **options)
-        self.entry.pack(fill="x", ipady=6)
+        self.entry.pack(fill="x", ipady=8)
         self.entry.bind("<FocusIn>", self._on_focus_in)
         self.entry.bind("<FocusOut>", self._on_focus_out)
         self.entry.bind("<KeyRelease>", self._on_type)

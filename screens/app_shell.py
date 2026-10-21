@@ -18,6 +18,9 @@ import theme
 import config
 import database
 
+from components import CenteredColumn
+
+
 from screens.admin_clients import AdminClientsView
 from screens.client_home import HomeView
 from screens.booking_wizard import BookingWizard
@@ -179,7 +182,12 @@ class ClientShell(tk.Frame):
         for child in self._content.winfo_children():
             child.destroy()
         self._content_holder = self._content
-        view = builders[name](self._content, self)
+        # views that handle their own centering (Home centers a scroll page)
+        if name == "home":
+            holder = self._content
+        else:
+            holder = CenteredColumn(self._content, width=1020)
+        view = builders[name](holder, self)
         view.pack(fill="both", expand=True)
         self.current_view = view
 
@@ -248,6 +256,7 @@ class AdminShell(tk.Frame):
 
         content = tk.Frame(self, bg=theme.BG_APP)
         content.pack(side="left", fill="both", expand=True)
+        self._content = content
         self._content_holder = content
         self.switch_view("dashboard")
 
@@ -285,15 +294,16 @@ class AdminShell(tk.Frame):
             name = "dashboard"
         self.current_view_name = name
         self.built_name = name
-        self._content_holder.destroy()
-        self._content_holder = tk.Frame(self, bg=theme.BG_APP)
-        self._content_holder.pack(side="left", fill="both", expand=True)
+        # clear the old column, then build the staff page centered
+        for child in self._content.winfo_children():
+            child.destroy()
+        holder = CenteredColumn(self._content, width=1150)
         builders = {
             "dashboard": AdminDashboard,
             "bookings": AdminBookingsView,
             "schedule": AdminScheduleView,
             "clients": AdminClientsView,
         }
-        view = builders[name](self._content_holder, self)
+        view = builders[name](holder, self)
         view.pack(fill="both", expand=True)
         self.current_view = view
