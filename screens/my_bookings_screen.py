@@ -71,7 +71,10 @@ class MyBookingsView(tk.Frame):
         body = tk.Frame(self, bg=theme.BG_APP)
         body.pack(fill="both", expand=True, padx=theme.PAD_LG,
                   pady=(theme.PAD_MD, theme.PAD_LG))
-        table_card = Card(body, radius=theme.RADIUS_LG, pad=theme.PAD_SM)
+        # stretch keeps the table body filling the whole card (and the
+        # column gives the page the full window height)
+        table_card = Card(body, radius=theme.RADIUS_LG, pad=theme.PAD_SM,
+                          stretch=True)
         table_card.pack(side="left", fill="both", expand=True)
         self._table = DataTable(
             table_card.body,
@@ -89,9 +92,12 @@ class MyBookingsView(tk.Frame):
             on_select=self._on_pick)
         self._table.pack(fill="both", expand=True)
 
+        # plain frame + card hugs its content: no scrollbar and no big
+        # empty strip below the details (the table card next to it keeps
+        # the full window height)
         self._detail_card = Card(body, radius=theme.RADIUS_LG,
                                  pad=theme.PAD_LG)
-        self._detail_card.pack(side="right", fill="y", expand=False,
+        self._detail_card.pack(side="right", expand=False,
                                padx=(theme.PAD_MD, 0))
         self._detail = tk.Frame(self._detail_card.body, bg=theme.BG_SURFACE)
         self._detail.pack(fill="both", expand=True)

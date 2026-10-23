@@ -16,8 +16,21 @@ Two rules every caller must follow:
 """
 
 import os
+import sys
 
 import theme
+
+# say the "no Pillow" thing exactly once per program run, never twice
+# include the interpreter path so it's obvious which Python needs Pillow
+_pillow_warned = False
+
+
+def _warn_no_pillow():
+    global _pillow_warned
+    if not _pillow_warned:
+        print("Pillow is not installed for this Python: %s. Run: %s -m pip install pillow" % (sys.executable, sys.executable))
+        _pillow_warned = True
+
 
 try:
     from PIL import Image, ImageDraw, ImageOps
@@ -25,6 +38,7 @@ try:
     PIL_OK = True
 except ImportError:            # Pillow not installed - placeholders only
     PIL_OK = False
+    _warn_no_pillow()
 
 # pictures/ sits next to the project root (utils/ is one level down)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -68,7 +82,11 @@ def load_image(name, size, cover=True, rounded=0, color=None):
     fill = color or theme.BG_SOFT
     width, height = size
     if not PIL_OK:
-        return None   # caller shows its flat panel instead
+        # return a plain grey PhotoImage so the canvas keeps its size
+        import tkinter as tk
+        img = tk.PhotoImage(width=width, height=height)
+        img.put((fill,), to=(0, 0, width, height))
+        return img
     try:
         path = _find_path(name)
         if path is None:

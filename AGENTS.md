@@ -47,10 +47,23 @@ Shell is Windows PowerShell 5.1: no grep/sed/heredocs; use Select-String, and
 - Centered layout: `ClientShell.switch_view` / `AdminShell.switch_view` wrap every view
   (home gets `target_width` computed from the window) in `components.CenteredColumn`.
   Views must NOT create their own CenteredColumn on top of that (double centering).
+- Window sizes: main.py starts the window zoomed (maximized). Layout rules as of
+  this session: Home + client Vehicles/Addresses/Profile/Help pages are wrapped in a
+  shell-level ScrollFrame (page scrolls); wizard and My Bookings use
+  `CenteredColumn(fill_height=True)` and fill the window with stretchy cards
+  (`Card(..., stretch=True)`) that scroll INSIDE (wizard steps in a ScrollFrame;
+  bookings tables in DataTable; detail panels in their own ScrollFrame). Admin
+  non-dashboard pages are `CenteredColumn(fill_height=True)` with target
+  `max(1150, content width - padding)` — no page-level scrollbar anywhere.
+  DataTable row cells use pady=10; SegmentedControl supports wrap=N (grid, N per
+  row) — used with wrap=2 in the admin booking status panel; admin bookings
+  auto-selects the newest booking on reload.
 - Wizard (`screens/booking_wizard.py`): 5 steps vehicle -> package -> schedule ->
   location -> review. Add-ons are selected as a set of ids (`draft["addons"]`),
   joined with `","` before `database.create_booking`. Booking goes in as Pending.
-  Full slots (3 per slot) are greyed out.
+  Full slots (3 per slot) are greyed out. Schedule step groups slots into
+  Morning/Afternoon rows and shows a live "Your booking: ..." summary strip that
+  fills in as date/time are picked (`_update_pick_line`).
 - `admin_schedule.py` day cells are canvases with explicit `height = CELL_H` (72); a
   canvas without an explicit height defaults to ~265px tall and pushes the calendar
   off-screen.
@@ -65,6 +78,9 @@ Shell is Windows PowerShell 5.1: no grep/sed/heredocs; use Select-String, and
 - `DateField(master, label="Date", value="", on_change=None, bg=None)` — `.set()` fires on_change.
 - `Button` is canvas-based: use `.set_variant(variant)` / `.set_text()`, NOT `configure(fg=)`.
 - `Card` — use `.card_bg` / `.set_card_bg(bg)`; content goes in `.body`.
+  `Card(..., stretch=True)` makes the body fill the card height (tall table /
+  calendar cards) instead of hugging its content — only use it on cards that
+  are packed fill=both+expand.
 - `Toast.show(root, msg, kind)` or `Toast(master, msg, variant="ok"/"error"/"info")`.
 - `ScrollFrame` binds the mouse wheel globally on `<Enter>`/`<Leave>` so scrolling
   works anywhere over the page, not just the scrollbar.
@@ -111,6 +127,11 @@ Shell is Windows PowerShell 5.1: no grep/sed/heredocs; use Select-String, and
 11. Wide tables squeezed: DataTable now uses ScrollFrame(hscroll=True); the header
    lives INSIDE the scroll area (so it lines up when scrolled sideways), rows go
    in `self._rows_box`, and Shift+wheel scrolls horizontally.
+12. Saved address radii letter-spaced ("2 - 3 - s - a - d..."): someone ran
+   `" - ".join()` on the STRING `database.address_lines()` returns — that joins
+   per-character. `address_lines` already returns one formatted line; append it
+   as-is (same fix in the review step's "Where"). Also: `DateField.get()`
+   returns None when the box is empty — guard with `or ""` before parsing.
 
 ## Next session (known issues to fix)
 

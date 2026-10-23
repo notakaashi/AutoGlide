@@ -18,7 +18,7 @@ import theme
 import config
 import database
 
-from components import CenteredColumn
+from components import CenteredColumn, ScrollFrame
 
 
 from screens.admin_clients import AdminClientsView
@@ -185,8 +185,25 @@ class ClientShell(tk.Frame):
         # views that handle their own centering (Home centers a scroll page)
         if name == "home":
             holder = self._content
+        elif name == "new_booking":
+            # the wizard owns the window and scrolls inside its card
+            holder = CenteredColumn(self._content, width=1100,
+                                    fill_height=True)
+            self._content_holder = holder
+        elif name == "my_bookings":
+            # table + details page fills the window like the staff one
+            available = self._content.winfo_width() - 2 * theme.PAD_LG
+            holder = CenteredColumn(self._content,
+                                    width=max(1020, available),
+                                    fill_height=True)
+            self._content_holder = holder
         else:
-            holder = CenteredColumn(self._content, width=1020)
+            # every other page scrolls on its own, so a long list of saved
+            # vehicles/addresses never pushes content out of reach
+            scroll = ScrollFrame(self._content, bg=theme.BG_APP)
+            scroll.pack(fill="both", expand=True)
+            self._content_holder = scroll
+            holder = CenteredColumn(scroll.inner, width=1020)
         view = builders[name](holder, self)
         view.pack(fill="both", expand=True)
         self.current_view = view
@@ -243,11 +260,17 @@ class AdminShell(tk.Frame):
             row.bind("<Leave>", lambda e=None, r=row: self._hover(r, False))
             self._rows[key] = row
 
+        # bottom: hairline separator, then the account name and Log Out
+        # aligned like the nav rows above (same "  " prefix) and padded
+        # off the window edge
         bottom = tk.Frame(sidebar, bg=theme.PRIMARY)
-        bottom.pack(fill="x", pady=theme.PAD_MD)
-        tk.Label(bottom, text=self._who(), font=theme.FONT_TINY,
+        bottom.pack(side="bottom", fill="x", pady=(theme.PAD_MD,
+                                                   theme.PAD_LG + 8))
+        tk.Frame(bottom, bg=theme.ACCENT_SOFT, height=1
+                 ).pack(fill="x", padx=theme.PAD_LG, pady=(0, 10))
+        tk.Label(bottom, text="  " + self._who(), font=theme.FONT_TINY,
                  fg=theme.ACCENT_SOFT, bg=theme.PRIMARY,
-                 anchor="w").pack(fill="x", padx=theme.PAD_LG)
+                 anchor="w").pack(fill="x")
         logout = tk.Label(bottom, text="  Log Out", font=theme.FONT_BODY_BOLD,
                           fg=theme.TEXT_ON_DARK, bg=theme.PRIMARY,
                           anchor="w", pady=6, cursor="hand2")
@@ -305,7 +328,11 @@ class AdminShell(tk.Frame):
             holder = self._content
             self._content_holder = self._content
         else:
-            holder = CenteredColumn(self._content, width=1150)
+            # staff pages fill the window and scroll inside their cards
+            # (tables and the calendar stretch; no page-level scrollbar)
+            available = self._content.winfo_width() - 2 * theme.PAD_LG
+            holder = CenteredColumn(self._content, width=max(1150, available),
+                                    fill_height=True)
             self._content_holder = holder
         builders = {
             "dashboard": AdminDashboard,

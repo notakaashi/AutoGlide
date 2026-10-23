@@ -1,3 +1,4 @@
+
 """
 screens/register_screen.py
 =============================================================================
@@ -27,7 +28,7 @@ class RegisterScreen(tk.Frame):
         """Left: cover photo. Right: the registration form on a white card."""
         photo_side = tk.Canvas(self, width=460, bg=theme.BG_SOFT,
                                highlightthickness=0, bd=0)
-        photo_side.pack(side="left", fill="y", expand=True)
+        photo_side.pack(side="left", fill="y")
         utils.images.cover_photo(photo_side, "login_side.jpg")
 
         right = tk.Frame(self, bg=theme.BG_APP)

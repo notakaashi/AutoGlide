@@ -70,7 +70,7 @@ class MarketingBody(tk.Frame):
                          justify="left")
         btn = Button(hero, text="Book now", variant="light",
                      bg=theme.PRIMARY, command=self._on_book)
-        hero.create_window(tx, height - 82, window=btn, anchor="nw",
+        hero.create_window(tx, height - 70, window=btn, anchor="nw",
                            width=panel_w - 2 * tx, height=44)
 
     # ------------------------------------------------------------------
@@ -158,7 +158,6 @@ class MarketingBody(tk.Frame):
             title = step_text.split(". ", 1)[-1]
             col = tk.Frame(row, bg=theme.BG_APP, width=self._card_w)
             col.pack(side="left", padx=(0, self.GAP))
-            col.pack_propagate(False)
             box = tk.Canvas(col, width=self._card_w, height=170,
                             bg=theme.BG_APP, highlightthickness=0, bd=0)
             box.pack(anchor="w")

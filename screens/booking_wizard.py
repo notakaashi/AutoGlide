@@ -23,7 +23,7 @@ import database
 import validators
 
 from components import (Card, Button, DateField, Chip, Toast, EntryField,
-                        CheckField)
+                        CheckField, ScrollFrame)
 
 
 class BookingWizard(tk.Frame):
@@ -54,8 +54,10 @@ class BookingWizard(tk.Frame):
         self._draft.setdefault("place", {})
         self._load_fresh_draft()
 
-        # the shell already builds this view inside a centered column
-        self.card = Card(self, radius=theme.RADIUS_LG, pad=theme.PAD_LG)
+        # the shell already builds this view in a full-height centered
+        # column; stretch makes the card fill the window top to bottom
+        self.card = Card(self, radius=theme.RADIUS_LG, pad=theme.PAD_LG,
+                         stretch=True)
         self.card.pack(fill="both", expand=True, padx=theme.PAD_LG,
                        pady=theme.PAD_LG)
         self.body = self.card.body
@@ -119,10 +121,14 @@ class BookingWizard(tk.Frame):
     # BODY + FOOTER
     # ------------------------------------------------------------------
     def _build_body(self):
-        """One plain frame per step that gets rebuilt on demand."""
-        self._step_frame = tk.Frame(self.body, bg=theme.BG_SURFACE)
-        self._step_frame.pack(fill="both", expand=True,
-                              pady=(theme.PAD_MD, 0))
+        """One plain frame per step that gets rebuilt on demand.
+
+        The step content lives in a scroll area, so a long saved-vehicles
+        or addresses list can't push the form and buttons off-screen.
+        """
+        scroller = ScrollFrame(self.body, bg=theme.BG_SURFACE)
+        scroller.pack(fill="both", expand=True, pady=(theme.PAD_MD, 0))
+        self._step_frame = scroller.inner
 
     def _build_footer(self, step):
         """Back / Continue buttons under the step content."""
@@ -274,15 +280,18 @@ class BookingWizard(tk.Frame):
         self._v_model = EntryField(grid, width=22, label="Model *",
                                    text=self._draft["vehicle"]["model"]
                                    if self._draft["vehicle"] else "")
-        self._v_model.grid(row=0, column=1, padx=(0, 18), sticky="w")
-        self._v_color = EntryField(grid, width=16, label="Color",
+        self._v_model.grid(row=0, column=1, sticky="w")
+        # Color and Plate on a second row so they don't clip at 1000px wide
+        self._v_color = EntryField(grid, width=22, label="Color",
                                    text=self._draft["vehicle"]["color"]
                                    if self._draft["vehicle"] else "")
-        self._v_color.grid(row=0, column=2, padx=(0, 18), sticky="w")
-        self._v_plate = EntryField(grid, width=16, label="Plate",
+        self._v_color.grid(row=1, column=0, padx=(0, 18), sticky="w",
+                           pady=(theme.PAD_SM, 0))
+        self._v_plate = EntryField(grid, width=22, label="Plate",
                                    text=self._draft["vehicle"]["plate"]
                                    if self._draft["vehicle"] else "")
-        self._v_plate.grid(row=0, column=3, sticky="w")
+        self._v_plate.grid(row=1, column=1, sticky="w",
+                           pady=(theme.PAD_SM, 0))
         # Typing in the form means "new vehicle" - deselect any saved pick.
         for field in (self._v_label, self._v_make, self._v_model,
                       self._v_color, self._v_plate):
@@ -423,13 +432,17 @@ class BookingWizard(tk.Frame):
                  bg=theme.BG_SURFACE).pack(anchor="w")
         row = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
         row.pack(fill="x", pady=(theme.PAD_SM, 0))
+        # grid with three equal columns: cards always share the row width
+        # (pack would keep every canvas at its default ~378px and clip)
+        for c in range(len(config.SERVICE_TIERS)):
+            row.grid_columnconfigure(c, weight=1, uniform="tiers")
         self._tier_cards = []
-        for tier in config.SERVICE_TIERS:
+        for col, tier in enumerate(config.SERVICE_TIERS):
             selected = tier["id"] == self._draft["tier_id"]
             price = config.price_for(tier["id"], self._draft["vehicle_type"])
             card = Card(row, radius=theme.RADIUS_LG, pad=theme.PAD_LG,
                         bg=theme.BG_SOFT if selected else theme.BG_SURFACE)
-            card.pack(side="left", fill="both", expand=True,
+            card.grid(row=0, column=col, sticky="nsew",
                       padx=(0, theme.PAD_SM))
             card.body.bind("<Button-1>", lambda e, t=tier["id"]: self._pick_tier(t))
             card.title = tk.Label(card.body, text=tier["name"],
@@ -517,15 +530,21 @@ class BookingWizard(tk.Frame):
     # STEP 3 - SCHEDULE
     # ------------------------------------------------------------------
     def _step_schedule(self):
-        """Date picker plus time-slot chips (full ones disabled)."""
+        """Date picker plus time-slot chips (full ones disabled).
+
+        The chips sit in Morning / Afternoon rows and a "your booking"
+        strip fills in live while you pick, so the step isn't just one
+        lonely date box with empty space under it."""
         self._clear_step()
-        left = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
-        left.pack(side="left", pady=(theme.PAD_MD, 0))
+        row = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
+        row.pack(fill="x", pady=(theme.PAD_MD, 0))
+        left = tk.Frame(row, bg=theme.BG_SURFACE)
+        left.pack(side="left")
         tk.Label(left, text="Pick a date", font=theme.FONT_BODY_BOLD,
                  fg=theme.TEXT, bg=theme.BG_SURFACE).pack(anchor="w")
         initial = self._draft.get("booking_date")
         self._date_field = DateField(left, value=initial,
-                                     on_change=self._paint_slots)
+                                     on_change=lambda: self._on_date_changed())
         self._date_field.pack(anchor="w", pady=(theme.PAD_SM, 0))
         tk.Label(self._step_frame,
                  text="We can start as early as tomorrow, up to "
@@ -533,25 +552,43 @@ class BookingWizard(tk.Frame):
                  font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
                  bg=theme.BG_SURFACE).pack(anchor="w", pady=(theme.PAD_XS, 0))
 
-        right = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
-        right.pack(side="right", padx=(theme.PAD_XL, 0),
-                   pady=(theme.PAD_MD, 0))
+        right = tk.Frame(row, bg=theme.BG_SURFACE)
+        right.pack(side="right", padx=(theme.PAD_XL, 0))
         tk.Label(right, text="Pick a time", font=theme.FONT_BODY_BOLD,
                  fg=theme.TEXT, bg=theme.BG_SURFACE).pack(anchor="w")
         self._slot_grid = tk.Frame(right, bg=theme.BG_SURFACE)
         self._slot_grid.pack(anchor="w", pady=(theme.PAD_SM, 0))
         self._paint_slots()
+
+        # the live summary strip - the fun bit that fills in as you choose
+        strip = tk.Frame(self._step_frame, bg=theme.BG_SOFT)
+        strip.pack(fill="x", pady=(theme.PAD_LG, theme.PAD_MD))
+        self._pick_label = tk.Label(
+            strip, text="", font=theme.FONT_BODY_BOLD, fg=theme.PRIMARY,
+            bg=theme.BG_SOFT, justify="left")
+        self._pick_label.pack(anchor="w", padx=theme.PAD_LG,
+                              pady=theme.PAD_MD)
         tk.Label(self._step_frame,
                  text=config.slot_note(),
                  font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
-                 bg=theme.BG_SURFACE).pack(anchor="w",
-                                           pady=(theme.PAD_SM, 0))
+                 bg=theme.BG_SURFACE).pack(anchor="w")
+        self._update_pick_line()
 
-    def _paint_slots(self):
-        """Builds the time-slot chips; full slots are disabled."""
+    def _on_date_changed(self):
+        """Date picked or retyped - repaint slots and the summary strip."""
+        self._paint_slots()
+        self._update_pick_line()
+
+    def _slot_group(self, title, slots):
+        """One caption + one row of slot chips (full ones disabled)."""
+        tk.Label(self._slot_grid, text=title, font=theme.FONT_SMALL_BOLD,
+                 fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE).pack(
+                     anchor="w", pady=(6, 0))
+        row = tk.Frame(self._slot_grid, bg=theme.BG_SURFACE)
+        row.pack(anchor="w")
         date_text = self._date_field.get()
         current = self._draft.get("time_slot")
-        for slot in config.TIME_SLOTS:
+        for slot in slots:
             full = False
             if date_text:
                 full = database.count_slot_bookings(date_text, slot) >= \
@@ -562,18 +599,52 @@ class BookingWizard(tk.Frame):
                 state = "selected"
             else:
                 state = "normal"
-            chip = Chip(self._slot_grid, text=slot, state=state,
+            chip = Chip(row, text=slot, state=state,
                         command=lambda s=slot: self._pick_slot(s))
             chip.pack(side="left", padx=(0, 8), pady=2)
             self._slot_chips[slot] = chip
 
+    def _paint_slots(self):
+        """Rebuilds the two slot rows; Morning = before noon, Afternoon = rest."""
+        for widget in self._slot_grid.winfo_children():
+            widget.destroy()
+        self._slot_chips = {}
+        self._slot_group("Morning", config.TIME_SLOTS[:3])
+        self._slot_group("Afternoon", config.TIME_SLOTS[3:])
+
     def _pick_slot(self, slot):
-        """A time chip was clicked; repaint selection."""
+        """A time chip was clicked; repaint selection and the strip."""
         self._draft["time_slot"] = slot
         for s, chip in self._slot_chips.items():
             if chip.state == "full":
                 continue
             chip.set_state("selected" if s == slot else "normal")
+        self._update_pick_line()
+
+    def _update_pick_line(self):
+        """Fills the summary strip with the current date + time pick."""
+        if not getattr(self, "_pick_label", None):
+            return
+        slot = self._draft.get("time_slot")
+        # DateField.get() returns None when the box is empty
+        date_text = self._date_field.get() if getattr(
+            self, "_date_field", None) else ""
+        if not date_text:
+            date_text = ""
+        try:
+            day = datetime.date.fromisoformat(date_text)
+        except ValueError:
+            day = None
+        if day is None or not slot:
+            text = ("Your booking: nothing picked yet - " +
+                    "choose a date, then a time.")
+        else:
+            used = database.count_slot_bookings(date_text, slot)
+            open_left = max(0, config.SLOT_CAPACITY - used)
+            text = ("Your booking: " + config.friendly_date(date_text)
+                    + " at " + slot + "   -   " + str(open_left) + " open "
+                    + "slot" + ("" if open_left == 1 else "s") + " left.")
+        self._pick_label.configure(text=text)
 
     def _validate_schedule(self):
         """Date + slot both required; date must be within the allowed range."""
@@ -625,8 +696,9 @@ class BookingWizard(tk.Frame):
                 start = str(chosen["saved_id"])
             self._address_choice = tk.StringVar(value=str(start))
             for a in self._saved_addresses:
-                lines = " - ".join(database.address_lines(
-                    a["address"], a["barangay"], a["city"], a["landmark"]))
+                # address_lines() already returns one readable line
+                lines = database.address_lines(
+                    a["address"], a["barangay"], a["city"], a["landmark"])
                 item = tk.Frame(saved, bg=theme.BG_SOFT)
                 item.pack(fill="x", pady=3)
                 radio = tk.Radiobutton(item, variable=self._address_choice,
@@ -787,8 +859,8 @@ class BookingWizard(tk.Frame):
             ("Package", config.tier_name(self._draft["tier_id"])),
             ("When", config.friendly_date(self._draft["booking_date"])
              + "  -  " + self._draft["time_slot"]),
-            ("Where", " - ".join(database.address_lines(
-                a["address"], a["barangay"], a["city"], a["landmark"]))),
+            ("Where", database.address_lines(
+                a["address"], a["barangay"], a["city"], a["landmark"])),
         ]
         for key, value in lines:
             tk.Label(left, text=key, font=theme.FONT_SMALL_BOLD,

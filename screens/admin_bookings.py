@@ -15,7 +15,7 @@ import config
 import database
 
 from components import (Card, Button, StatusPill, EntryField, DataTable,
-                        SegmentedControl, Toast)
+                        SegmentedControl, ScrollFrame, Toast)
 
 
 class AdminBookingsView(tk.Frame):
@@ -39,14 +39,18 @@ class AdminBookingsView(tk.Frame):
         tk.Label(head, text="Bookings", font=theme.FONT_SECTION,
                  fg=theme.TEXT, bg=theme.BG_APP).pack(anchor="w")
 
-        bar = tk.Frame(head, bg=theme.BG_APP)
-        bar.pack(fill="x", pady=(theme.PAD_MD, 0))
-        self._search = EntryField(bar, label="", placeholder="Search client, "
+        # search box on its own row
+        search_row = tk.Frame(head, bg=theme.BG_APP)
+        search_row.pack(fill="x", pady=(theme.PAD_MD, 0))
+        self._search = EntryField(search_row, label="", placeholder="Search client, "
                                   "package, address...", width=26)
         self._search.pack(side="left")
         self._search.entry.bind("<KeyRelease>", lambda e: self.reload())
-        chips = tk.Frame(bar, bg=theme.BG_APP)
-        chips.pack(side="left", padx=(theme.PAD_MD, 0))
+        # filter chips on their own row below the search box
+        chips_row = tk.Frame(head, bg=theme.BG_APP)
+        chips_row.pack(fill="x", pady=(theme.PAD_XS, 0))
+        chips = tk.Frame(chips_row, bg=theme.BG_APP)
+        chips.pack(side="left")
         self._chips = []
         for status in ["All"] + list(config.BOOKING_STATUSES):
             b = Button(chips, text=status,
@@ -67,7 +71,10 @@ class AdminBookingsView(tk.Frame):
         body.pack(fill="both", expand=True, padx=theme.PAD_LG,
                   pady=(theme.PAD_MD, theme.PAD_LG))
 
-        table_card = Card(body, radius=theme.RADIUS_LG, pad=theme.PAD_SM)
+        # stretch lets the table body fill the whole card (no empty strip
+        # below the last row when the card is taller than the table)
+        table_card = Card(body, radius=theme.RADIUS_LG, pad=theme.PAD_SM,
+                          stretch=True)
         table_card.pack(side="left", fill="both", expand=True)
         self._table = DataTable(
             table_card.body,
@@ -93,11 +100,18 @@ class AdminBookingsView(tk.Frame):
                  bg=theme.BG_SURFACE).pack(anchor="w", padx=10)
 
         self._detail_card = Card(body, radius=theme.RADIUS_LG, pad=theme.PAD_LG)
-        self._detail_card.pack(side="right", fill="y", expand=False,
+        # hug the content (no tall empty strip), but cap the height to the
+        # window so Save/Accept/Decline scroll into view instead of clipping
+        self._detail_card.pack(side="right", anchor="n",
                                padx=(theme.PAD_MD, 0))
-        self._detail = tk.Frame(self._detail_card.body, bg=theme.BG_SURFACE)
-        self._detail.pack(fill="both", expand=True)
+        self._detail_scroll = ScrollFrame(self._detail_card.body,
+                                          bg=theme.BG_SURFACE)
+        self._detail_scroll.pack(fill="x")
+        self._detail = self._detail_scroll.inner
+        self._body_frame = body
         self._paint_detail()
+        # re-cap whenever the window changes size
+        body.bind("<Configure>", lambda e: self._fit_detail())
 
     def _pick_status(self, status):
         """Status filter chip clicked."""
@@ -152,6 +166,10 @@ class AdminBookingsView(tk.Frame):
                 "status": row["status"],
             })
         self._table.set_rows(table_rows)
+        # show the newest booking in the details panel by default, so the
+        # user doesn't have to click a row first
+        if self._selected is None and table_rows:
+            self._table._select(0)
         for chip_status, button in self._chips:
             if chip_status == self.filter_status:
                 button.set_variant("primary")
@@ -186,6 +204,7 @@ class AdminBookingsView(tk.Frame):
                      font=theme.FONT_BODY, fg=theme.TEXT_MUTED,
                      bg=theme.BG_SURFACE, wraplength=260,
                      justify="left").pack(pady=theme.PAD_LG)
+            self._fit_detail()
             return
         self._label("Client", "#" + str(booking["user_id"]) + "  "
                     + (booking["client_name"] or "-"))
@@ -207,9 +226,10 @@ class AdminBookingsView(tk.Frame):
         tk.Label(status_row, text="Change status", font=theme.FONT_SMALL_BOLD,
                  fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE).pack(anchor="w")
         # (comment: the admin picks a new status, then presses Save)
+        # wrap=2 so the six long status names fit inside the card
         self._status_choice = SegmentedControl(
             self._detail, list(config.BOOKING_STATUSES),
-            value=booking["status"])
+            value=booking["status"], wrap=2)
         self._status_choice.pack(anchor="w", pady=(4, 0))
         save_row = tk.Frame(self._detail, bg=theme.BG_SURFACE)
         save_row.pack(fill="x", pady=(theme.PAD_MD, 0))
@@ -235,6 +255,22 @@ class AdminBookingsView(tk.Frame):
         Button(self._detail, text="Delete booking",
                command=self._delete, variant="ghost").pack(
                    anchor="w", pady=(theme.PAD_MD, 0))
+        self._fit_detail()
+
+    def _fit_detail(self):
+        """Caps the details card: hug the content, but never taller than the
+        window - the ScrollFrame takes over when the panel really overflows."""
+        def fit():
+            if not self.winfo_exists() or \
+                    not self._detail_scroll.winfo_exists():
+                return
+            content = self._detail_scroll.inner.winfo_reqheight()
+            # body height minus the card's own padding
+            room = max(self._body_frame.winfo_height() - 2 * theme.PAD_LG,
+                       260)
+            self._detail_scroll.canvas.configure(
+                height=max(140, min(content, room)))
+        self.after_idle(fit)
 
     def _set_status(self, booking_id, status):
         """One-click accept / decline, then repaints the table."""

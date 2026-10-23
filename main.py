@@ -41,6 +41,11 @@ class AutoGlideApp(tk.Tk):
                    + " - Mobile Auto Detailing Scheduler")
         self.geometry("1280x780")
         self.minsize(1000, 650)
+        # start maximized so the app always fills the screen
+        try:
+            self.state("zoomed")
+        except Exception:
+            pass
         self.configure(bg=theme.BG_APP)
 
         # 2. Session state

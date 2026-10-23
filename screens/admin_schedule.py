@@ -70,7 +70,10 @@ class AdminScheduleView(tk.Frame):
         body = tk.Frame(self, bg=theme.BG_APP)
         body.pack(fill="both", expand=True, padx=theme.PAD_LG,
                   pady=(theme.PAD_MD, theme.PAD_LG))
-        self._cal_card = Card(body, radius=theme.RADIUS_LG, pad=theme.PAD_LG)
+        # stretch makes the calendar card own the whole window height, so
+        # the day-cell rows can grow instead of leaving empty space below
+        self._cal_card = Card(body, radius=theme.RADIUS_LG, pad=theme.PAD_LG,
+                              stretch=True)
         self._cal_card.pack(side="left", fill="both", expand=True)
         self._grid = tk.Frame(self._cal_card.body, bg=theme.BG_SURFACE)
         self._grid.pack(fill="both", expand=True)
@@ -148,10 +151,12 @@ class AdminScheduleView(tk.Frame):
                 iso = "%04d-%02d-%02d" % (self.year, self.month, day)
                 self._day_cell(r + 1, c, iso, day,
                                chip_counts.get(iso, {}))
-        # fixed heights keep every calendar row the same size
+        # fixed heights keep every calendar row the same size; the weight
+        # makes the rows share any extra space so the calendar fills the
+        # window instead of leaving a big empty strip below
         self._grid.rowconfigure(0, pad=8)
         for r in range(1, len(weeks) + 1):
-            self._grid.rowconfigure(r, minsize=self.CELL_H)
+            self._grid.rowconfigure(r, minsize=self.CELL_H, weight=1)
         self._refresh_day_list()
 
     def _day_cell(self, r, c, iso, day, chips):

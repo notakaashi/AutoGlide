@@ -72,10 +72,14 @@ class AdminDashboard(tk.Frame):
         )
         row = tk.Frame(page, bg=theme.BG_APP)
         row.pack(fill="x", padx=theme.PAD_LG, pady=(theme.PAD_MD, 0))
+        # four equal-width columns via grid uniform group
+        for col_i in range(4):
+            row.columnconfigure(col_i, weight=1, uniform="stat")
         self._stat_labels = {}
-        for caption, value in self._stat_values:
+        for col_i, (caption, value) in enumerate(self._stat_values):
             card = Card(row, radius=theme.RADIUS_LG, pad=theme.PAD_MD)
-            card.pack(side="left", fill="both", expand=True,
+            # same padx on every card so all four are identical width
+            card.grid(row=0, column=col_i, sticky="nsew",
                       padx=(0, theme.PAD_SM))
             body = tk.Frame(card.body, bg=theme.BG_SURFACE)
             body.pack(fill="both", expand=True)
@@ -153,7 +157,8 @@ class AdminDashboard(tk.Frame):
         for index, offset in enumerate(range(6, -1, -1)):
             day = datetime.date.today() - datetime.timedelta(days=offset)
             count = counts.get(day.isoformat(), 0)
-            x = width - (index + 1) * slot_w
+            # oldest day (index 0) on the left
+            x = index * slot_w
             bar_w = slot_w * 0.44
             bar_h = 0 if count == 0 else max(6, usable * count / biggest)
             x0 = x + (slot_w - bar_w) / 2
@@ -194,8 +199,8 @@ class AdminDashboard(tk.Frame):
     def _pending_row(self, row):
         """One pending booking with its two answer buttons."""
         client = row["client_name"] or ("Client #" + str(row["user_id"]))
-        when = config.friendly_date(row["booking_date"])[:6] + ", " + \
-            row["time_slot"]
+        when = datetime.date.fromisoformat(row["booking_date"]).strftime("%a, %b %d") \
+            + ", " + row["time_slot"]
         area = row["city"] or ""
         item = tk.Frame(self._pending_list, bg=theme.BG_SURFACE)
         item.pack(fill="x", pady=(theme.PAD_SM, 0))

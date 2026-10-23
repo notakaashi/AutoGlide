@@ -154,7 +154,8 @@ class Card(tk.Canvas):
     """A rounded surface panel (14px corners by default).
     Put content inside card.body."""
     def __init__(self, master, radius=theme.RADIUS_LG, bg=theme.BG_SURFACE,
-                 border=theme.BORDER, pad=theme.PAD_MD, border_w=1, **kwargs):
+                 border=theme.BORDER, pad=theme.PAD_MD, border_w=1,
+                 stretch=False, **kwargs):
         self._parent_bg = bg_of(master)
         super().__init__(master, bg=self._parent_bg, highlightthickness=0,
                          bd=0, **kwargs)
@@ -166,6 +167,10 @@ class Card(tk.Canvas):
         self._pad = pad
         self._last_h = -1
         self._last_w = -1
+        self._last_bh = -1
+        # stretch=True: the card follows the space pack gives it (tall
+        # tables etc.) and the body fills the whole card, no empty gap
+        self._stretch = stretch
 
         self.body = tk.Frame(self, bg=bg)
         self._win = self.create_window(pad, pad, window=self.body, anchor="nw")
@@ -177,14 +182,22 @@ class Card(tk.Canvas):
         w = self.winfo_width()
         if w <= 1:
             return
-        want_h = self.body.winfo_reqheight() + 2 * self._pad
-        if want_h != self._last_h:
-            self._last_h = want_h
-            self.configure(height=want_h)
+        if not self._stretch:
+            want_h = self.body.winfo_reqheight() + 2 * self._pad
+            if want_h != self._last_h:
+                self._last_h = want_h
+                self.configure(height=want_h)
         inner_w = w - 2 * self._pad
         if inner_w != self._last_w:
             self._last_w = inner_w
             self.itemconfigure(self._win, width=inner_w)
+        if self._stretch:
+            # body fills the card top to bottom (hysteresis so we don't
+            # fire a relayout on every identical re-paint)
+            want_bh = self.winfo_height() - 2 * self._pad
+            if want_bh > 0 and want_bh != self._last_bh:
+                self._last_bh = want_bh
+                self.itemconfigure(self._win, height=want_bh)
         self._draw(w, self.winfo_height())
 
     def set_card_bg(self, bg):
@@ -229,13 +242,18 @@ class CenteredColumn(tk.Frame):
     everything hugging the left edge. Height always follows the content
     (so it also works inside a ScrollFrame).
     """
-    def __init__(self, master, width=980, bg=None):
+    def __init__(self, master, width=980, bg=None, fill_height=False):
         self._target = width
         self._last_master_w = 0
         super().__init__(master, bg=bg or bg_of(master))
         # fill="x" only: several columns can stack and the height always
         # follows the content, which keeps ScrollFrame pages working
-        self.pack(fill="x")
+        # fill_height=True: pages that scroll INSIDE their cards want the
+        # column to take the full window height instead (stretchy cards)
+        if fill_height:
+            self.pack(fill="both", expand=True)
+        else:
+            self.pack(fill="x")
         # recompute the side padding when the page is resized. Hysteresis
         # matters: re-labelling padx on every pixel of jitter (the
         # scrollbar can appear and disappear around the target width)
@@ -311,19 +329,33 @@ class StatusPill(tk.Canvas):
 # SEGMENTED CONTROL (replaces radio buttons)
 # ---------------------------------------------------------------------------
 class SegmentedControl(tk.Frame):
-    """A row of connected options where one is selected."""
-    def __init__(self, master, options, command=None, value=None, bg=None):
+    """A row of connected options where one is selected.
+
+    wrap=N lays the options out N per row with grid instead - use it when
+    the option texts are long and would run off the card edge.
+    """
+    def __init__(self, master, options, command=None, value=None, bg=None,
+                 wrap=None):
         bg = bg or bg_of(master)
         super().__init__(master, bg=bg, highlightbackground=theme.BORDER,
                          highlightthickness=1)
         self.command = command
         self.value = value if value is not None else options[0]
         self.labels = {}
+        row_i = 0
+        col_i = 0
         for option in options:
             label = tk.Label(self, text=option, font=theme.FONT_SMALL, padx=14,
                              pady=6, cursor="hand2", bg=theme.BG_SURFACE,
                              fg=theme.TEXT_MUTED)
-            label.pack(side="left")
+            if wrap:
+                label.grid(row=row_i, column=col_i, sticky="w")
+                col_i = col_i + 1
+                if col_i >= wrap:
+                    col_i = 0
+                    row_i = row_i + 1
+            else:
+                label.pack(side="left")
             label.bind("<Button-1>", lambda e, opt=option: self._select(opt))
             label.bind("<Enter>", lambda e, opt=option: self._hover(opt, True))
             label.bind("<Leave>", lambda e, opt=option: self._hover(opt, False))
@@ -485,6 +517,12 @@ class ScrollFrame(tk.Frame):
     def _on_inner(self, event=None):
         """Updates the scroll region when content changes."""
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        if not self._hscroll and self.canvas.winfo_width() > 1:
+            # re-pin the inner width to the viewport here too: pages that
+            # rebuild their content (wizard steps) would otherwise keep the
+            # width from the last canvas resize and clip on the right
+            self.canvas.itemconfigure(self._win,
+                                      width=self.canvas.winfo_width())
 
     def _on_canvas(self, event):
         """Stretches the inner frame to the canvas width.
@@ -870,7 +908,7 @@ class DataTable(tk.Frame):
                 label = tk.Label(frame, text=str(value), font=theme.FONT_BODY,
                                  fg=theme.TEXT, bg=base, anchor=column.get("anchor", "w"),
                                  justify="left")
-                label.grid(row=0, column=col_index, sticky="ew", padx=10, pady=8)
+                label.grid(row=0, column=col_index, sticky="ew", padx=10, pady=10)
                 widgets.append(label)
 
         frame._widgets = widgets
