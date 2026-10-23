@@ -30,7 +30,14 @@ class AdminDashboard(tk.Frame):
     # LAYOUT
     # ------------------------------------------------------------------
     def _build(self):
-        """Scrollable dashboard page."""
+        """Scrollable dashboard page.
+
+        Built straight into the shell content (full shell width): sections
+        fill the page with PAD_LG margins, and stat/chart cards stretch.
+        Do NOT wrap this page in a fixed-width CenteredColumn - the four
+        stat-card canvases naturally want ~1592px, so the column's padx
+        feedback loop makes the page width grow unbounded.
+        """
         scroll = ScrollFrame(self, bg=theme.BG_APP)
         scroll.pack(fill="both", expand=True)
         page = scroll.inner
@@ -96,6 +103,11 @@ class AdminDashboard(tk.Frame):
         self._chart = tk.Canvas(chart_card.body, height=170,
                                 bg=theme.BG_SURFACE, highlightthickness=0)
         self._chart.pack(fill="x", pady=(theme.PAD_SM, 0))
+        # the canvas reports width 1 at build time, so repaint once the card
+        # gives it its real width (after_idle keeps us out of the Configure
+        # handler; the chart is fixed height: no loop risk)
+        self._chart.bind(
+            "<Configure>", lambda e: self.after_idle(self._paint_chart))
         self._paint_chart()
 
     def _build_pending(self, columns):
@@ -120,6 +132,8 @@ class AdminDashboard(tk.Frame):
     # ------------------------------------------------------------------
     def _paint_chart(self):
         """Draws gridlines, 7 bars (oldest left) and day labels."""
+        if not self.winfo_exists():
+            return
         self._chart.delete("all")
         counts = database.get_bookings_last_days(7)
         self._chart.update_idletasks()

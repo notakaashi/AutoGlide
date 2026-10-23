@@ -294,10 +294,19 @@ class AdminShell(tk.Frame):
             name = "dashboard"
         self.current_view_name = name
         self.built_name = name
-        # clear the old column, then build the staff page centered
+        # clear the old column, then build the staff page
         for child in self._content.winfo_children():
             child.destroy()
-        holder = CenteredColumn(self._content, width=1150)
+        # The dashboard is a full scroll page that handles its own centering
+        # (like client home). Wrapping it in a fixed-width column clipped the
+        # page to the canvas-default height, which squeezed the chart and
+        # pending cards into a thin strip.
+        if name == "dashboard":
+            holder = self._content
+            self._content_holder = self._content
+        else:
+            holder = CenteredColumn(self._content, width=1150)
+            self._content_holder = holder
         builders = {
             "dashboard": AdminDashboard,
             "bookings": AdminBookingsView,

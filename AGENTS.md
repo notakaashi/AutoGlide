@@ -72,6 +72,11 @@ Shell is Windows PowerShell 5.1: no grep/sed/heredocs; use Select-String, and
   symmetric `padx`. Its `_recenter` uses a 40px hysteresis threshold + `after_idle` —
   do NOT turn it into a naive `pack_configure(padx)` on every `<Configure>`: that
   fights the scrollbar and hangs the app in an infinite relayout loop (bug 6).
+  NEVER put a CenteredColumn inside a ScrollFrame page when the content's natural
+  width exceeds the column width (stat-card canvases etc.): the column's padx
+  grows the scroll page's requested width, which grows the measured "available"
+  width, which grows padx again — unbounded loop, Tk eventually access-violates.
+  Full-width dashboard-style pages must build directly into the shell content.
 - `Chip`, `SegmentedControl`, `CheckField`, `Accordion`, `DataTable` also available.
 
 ## Bugs fixed in past sessions (don't reintroduce)
@@ -97,20 +102,19 @@ Shell is Windows PowerShell 5.1: no grep/sed/heredocs; use Select-String, and
    "+ Type a new vehicle", `_switch_to_new_vehicle` doesn't overwrite the saved
    check state, typed vehicles get `data["id"] = None`.
 9. Passwords were plaintext — now salted SHA-256 (see `database.py` note above).
+10. Admin dashboard spacing: the CenteredColumn wrap made the scroll page's height
+   follow the canvas-default (~265px) request, so the chart/pending cards were a
+   thin clipped strip. Dashboard now builds straight into the shell content at
+   full shell width (AdminShell only column-wraps the other three pages); the
+   chart canvas repaints on `<Configure>` (after_idle) so bars start at the real
+   width, not the 420px fallback.
+11. Wide tables squeezed: DataTable now uses ScrollFrame(hscroll=True); the header
+   lives INSIDE the scroll area (so it lines up when scrolled sideways), rows go
+   in `self._rows_box`, and Shift+wheel scrolls horizontally.
 
 ## Next session (known issues to fix)
 
-1. **Admin dashboard spacing is broken** (screenshot in chat): the CenteredColumn
-   wrap makes the dashboard content narrow and clipped — stat cards render, then a
-   thin blank strip with white blobs (the 7-day chart card + "Needs your answer"
-   card) that you must scroll inside to see. Fix: dashboard should use the full
-   shell width (no 1150 CenteredColumn, or column width should follow the window
-   like home does), stat cards should stretch to the column, and the chart/action
-   cards must render at a sane fixed height, not clipped inside their card.
-2. **Horizontal scrollbar for wide lists**: anything list-like (my_bookings
-   DataTable, admin bookings table, clients table) should get a working horizontal
-   scrollbar (and let the wheel scroll it) when the content is wider than the
-   viewport, instead of squeezing columns.
+None currently.
 
 ## Lessons learned
 
@@ -124,3 +128,15 @@ Shell is Windows PowerShell 5.1: no grep/sed/heredocs; use Select-String, and
   / `winfo_width()` after `update_idletasks()` + `update()`, not on pack options
   of the wrong nesting level (easy to misread "not centered" when you actually
   measured a parent).
+- A Tk access violation (exit -1073741819, no traceback) with no Python error is
+  often an unbounded geometry loop, not a code bug: instrument `_recenter`
+  (log pack_info padx changes) and bisect by disabling the suspect binding/column
+  until the hang goes away. Hysteresis only helps when the per-pump delta is
+  smaller than the threshold (40px here; padx grew +432/pump).
+- Packing order matters: pack a horizontal scrollbar (side="bottom") BEFORE the
+  canvas that fills/expands, or the canvas claims the cavity and the bar never
+  gets space.
+- Wrapping a view in a fill="x"-only container changes its height semantics: the
+  view renders at its requested height (a ScrollFrame canvas there ~ 265px
+  default), not the window height. If a page must own the window, build it
+  straight into the shell content.

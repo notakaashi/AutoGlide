@@ -425,8 +425,13 @@ class Chip(tk.Canvas):
 # SCROLL FRAME
 # ---------------------------------------------------------------------------
 class ScrollFrame(tk.Frame):
-    """A vertical scrolling area with a thin scroll bar."""
-    def __init__(self, master, bg=theme.BG_SURFACE, **kwargs):
+    """A vertical scrolling area with a thin scroll bar.
+
+    hscroll=True adds a horizontal bar along the bottom (used by DataTable)
+    and lets Shift + mouse wheel scroll sideways.
+    """
+    def __init__(self, master, bg=theme.BG_SURFACE, hscroll=False, **kwargs):
+        self._hscroll = hscroll
         super().__init__(master, bg=bg, **kwargs)
         self.canvas = tk.Canvas(self, bg=bg, highlightthickness=0, bd=0)
         self.scrollbar = ttk.Scrollbar(self, orient="vertical",
@@ -434,6 +439,15 @@ class ScrollFrame(tk.Frame):
                                        command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.scrollbar.pack(side="right", fill="y")
+        self.hscrollbar = None
+        if hscroll:
+            # take the horizontal bar space BEFORE the canvas so the canvas
+            # does not get stretched over it
+            self.hscrollbar = ttk.Scrollbar(self, orient="horizontal",
+                                            style="Thin.Horizontal.TScrollbar",
+                                            command=self.canvas.xview)
+            self.canvas.configure(xscrollcommand=self.hscrollbar.set)
+            self.hscrollbar.pack(side="bottom", fill="x")
         self.canvas.pack(side="left", fill="both", expand=True)
 
         self.inner = tk.Frame(self.canvas, bg=bg)
@@ -473,12 +487,33 @@ class ScrollFrame(tk.Frame):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _on_canvas(self, event):
-        """Stretches the inner frame to the canvas width."""
-        self.canvas.itemconfigure(self._win, width=event.width)
+        """Stretches the inner frame to the canvas width.
+
+        With hscroll on, the inner frame is allowed to be WIDER than the
+        canvas so wide table rows keep their natural width and can be
+        scrolled sideways instead of squeezed.
+        """
+        if self._hscroll:
+            want = max(event.width, self.inner.winfo_reqwidth())
+            self.canvas.itemconfigure(self._win, width=want)
+        else:
+            self.canvas.itemconfigure(self._win, width=event.width)
 
     def _wheel(self, event):
-        """Scrolls the canvas with the mouse wheel."""
+        """Scrolls the canvas with the mouse wheel.
+
+        Shift + wheel scrolls a horizontal table sideways instead.
+        """
         if not self.winfo_exists():
+            return
+        if self._hscroll and event.state & 0x0001:
+            if event.delta:
+                self.canvas.xview_scroll(
+                    -3 * int(event.delta / 120), "units")
+            elif event.num == 4:
+                self.canvas.xview_scroll(-3, "units")
+            elif event.num == 5:
+                self.canvas.xview_scroll(3, "units")
             return
         if event.delta:
             self.canvas.yview_scroll(-1 * int(event.delta / 120), "units")
@@ -767,22 +802,24 @@ class DataTable(tk.Frame):
         self._row_frames = []
         self._selected = None
 
-        # Header row (with a spacer to line up with the scroll bar).
-        self.header = tk.Frame(self, bg=theme.BG_SOFT)
-        self.header.pack(fill="x")
+        # The header lives INSIDE the scroll area so it stays lined up with
+        # the rows when a too-wide table is scrolled sideways.
+        self.body = ScrollFrame(self, bg=bg, hscroll=True)
+        self.body.pack(fill="both", expand=True)
+        self.body.inner.configure(bg=bg)
+
+        # Header row.
+        self.header = tk.Frame(self.body.inner, bg=theme.BG_SOFT)
+        self.header.pack(fill="x", anchor="n")
         self._configure_columns(self.header)
         for index, column in enumerate(columns):
             tk.Label(self.header, text=column["title"], font=theme.FONT_SMALL_BOLD,
                      fg=theme.TEXT_MUTED, bg=theme.BG_SOFT, anchor=column.get("anchor", "w")
                      ).grid(row=0, column=index, sticky="ew", padx=10, pady=9)
-        tk.Frame(self.header, bg=theme.BG_SOFT, width=12).grid(
-            row=0, column=len(columns), sticky="ns")
-        self.header.columnconfigure(len(columns), weight=0, minsize=12)
 
-        # Body.
-        self.body = ScrollFrame(self, bg=bg)
-        self.body.pack(fill="both", expand=True)
-        self.body.inner.configure(bg=bg)
+        # Rows land here so a refresh can clear only them, keeping the header.
+        self._rows_box = tk.Frame(self.body.inner, bg=bg)
+        self._rows_box.pack(fill="x")
 
     def _configure_columns(self, frame):
         """Applies the same column weights to a frame so rows line up."""
@@ -791,15 +828,15 @@ class DataTable(tk.Frame):
                                   minsize=column.get("minsize", 90))
 
     def set_rows(self, rows):
-        """Replaces the table content."""
+        """Replaces the table content (the header stays put)."""
         self._rows = rows
-        for child in self.body.inner.winfo_children():
+        for child in self._rows_box.winfo_children():
             child.destroy()
         self._row_frames = []
         self._selected = None
 
         if not rows:
-            tk.Label(self.body.inner, text="Nothing to show yet.",
+            tk.Label(self._rows_box, text="Nothing to show yet.",
                      font=theme.FONT_SMALL, fg=theme.TEXT_FAINT, bg=theme.BG_SURFACE,
                      pady=20).pack(fill="x")
             return
@@ -807,14 +844,14 @@ class DataTable(tk.Frame):
         for index, row in enumerate(rows):
             self._build_row(index, row)
 
-        self.body.bind_wheel(self.body.inner)
+        self.body.bind_wheel(self._rows_box)
         self.body.inner.update_idletasks()
         self.body.canvas.configure(scrollregion=self.body.canvas.bbox("all"))
 
     def _build_row(self, index, row):
         """Builds one row of cells."""
         base = theme.BG_SOFT if index % 2 else theme.BG_SURFACE
-        frame = tk.Frame(self.body.inner, bg=base)
+        frame = tk.Frame(self._rows_box, bg=base)
         frame.pack(fill="x")
         self._configure_columns(frame)
         widgets = []
