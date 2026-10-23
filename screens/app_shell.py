@@ -17,6 +17,7 @@ import tkinter as tk
 import theme
 import config
 import database
+import utils.images
 
 from components import CenteredColumn, ScrollFrame
 
@@ -72,12 +73,12 @@ class ClientShell(tk.Frame):
 
         brand = tk.Frame(nav, bg=theme.BG_SURFACE)
         brand.pack(side="left", padx=(theme.PAD_LG, 0), pady=theme.PAD_SM)
-        dot = tk.Canvas(brand, width=10, height=10, bg=theme.BG_SURFACE,
-                        highlightthickness=0)
-        dot.create_oval(1, 1, 9, 9, fill=theme.PRIMARY,
-                        outline=theme.PRIMARY)
-        dot.pack(side="left")
-        tk.Label(brand, text=" AutoGlide", font=theme.FONT_BRAND,
+        # the actual logo picture, not the old green dot
+        logo = utils.images.load_image("logo.jpg", (38, 38), rounded=8)
+        logo_lbl = tk.Label(brand, image=logo, bg=theme.BG_SURFACE)
+        logo_lbl.image = logo
+        logo_lbl.pack(side="left", padx=(0, 6))
+        tk.Label(brand, text="AutoGlide", font=theme.FONT_BRAND,
                  fg=theme.PRIMARY, bg=theme.BG_SURFACE).pack(side="left")
 
         middle = tk.Frame(nav, bg=theme.BG_SURFACE)
@@ -94,10 +95,11 @@ class ClientShell(tk.Frame):
 
         profile = tk.Frame(nav, bg=theme.BG_SURFACE)
         profile.pack(side="right", padx=(0, theme.PAD_LG))
-        self._profile_btn = tk.Label(
-            profile, text=self._initials(), font=theme.FONT_SMALL_BOLD,
-            fg=theme.TEXT_ON_DARK, bg=theme.PRIMARY, width=3,
-            cursor="hand2", pady=2)
+        # round profile picture replaces the initials button
+        pfp = utils.images.load_image("pfp.jpg", (36, 36), rounded=18)
+        self._profile_btn = tk.Label(profile, image=pfp,
+                                     bg=theme.BG_SURFACE, cursor="hand2")
+        self._profile_btn.image = pfp
         self._profile_btn.pack()
         self._profile_btn.bind("<Button-1>", self._open_profile_menu)
 
@@ -110,12 +112,6 @@ class ClientShell(tk.Frame):
         self._content_holder = content
         self.switch_view("home")
 
-    def _initials(self):
-        """The two letters shown in the round profile button."""
-        parts = (self.current_user["full_name"] or "").split()
-        letters = "".join(p[0] for p in parts if p)[:2]
-        return (letters or "?").upper()
-
     def _hover_tab(self, tab, inside):
         """Light hover feedback that respects the active tab color."""
         if tab is self._current_tab:
@@ -126,7 +122,7 @@ class ClientShell(tk.Frame):
     # PROFILE MENU
     # ------------------------------------------------------------------
     def _open_profile_menu(self, event=None):
-        """Small menu under the initials button: profile and logout."""
+        """Small menu under the profile picture: profile and logout."""
         menu = tk.Menu(self, tearoff=0, font=theme.FONT_BODY,
                        bg=theme.BG_SURFACE, fg=theme.TEXT,
                        activebackground=theme.BG_HOVER,
@@ -240,10 +236,11 @@ class AdminShell(tk.Frame):
 
         brand_area = tk.Frame(sidebar, bg=theme.PRIMARY)
         brand_area.pack(fill="x", pady=(theme.PAD_LG, theme.PAD_XL))
-        dot = tk.Canvas(brand_area, width=10, height=10, bg=theme.PRIMARY,
-                        highlightthickness=0)
-        dot.pack(side="left", padx=(theme.PAD_LG, 0))
-        dot.create_oval(1, 1, 9, 9, fill=theme.ACCENT, outline=theme.ACCENT)
+        # the actual logo picture, not the old accent dot
+        logo = utils.images.load_image("logo.jpg", (38, 38), rounded=8)
+        logo_lbl = tk.Label(brand_area, image=logo, bg=theme.PRIMARY)
+        logo_lbl.image = logo
+        logo_lbl.pack(side="left", padx=(theme.PAD_LG, 0))
         tk.Label(brand_area, text=" AutoGlide", font=theme.FONT_BRAND,
                  fg=theme.TEXT_ON_DARK, bg=theme.PRIMARY).pack(side="left")
 
@@ -268,14 +265,21 @@ class AdminShell(tk.Frame):
                                                    theme.PAD_LG + 8))
         tk.Frame(bottom, bg=theme.ACCENT_SOFT, height=1
                  ).pack(fill="x", padx=theme.PAD_LG, pady=(0, 10))
-        tk.Label(bottom, text="  " + self._who(), font=theme.FONT_TINY,
-                 fg=theme.ACCENT_SOFT, bg=theme.PRIMARY,
-                 anchor="w").pack(fill="x")
-        logout = tk.Label(bottom, text="  Log Out", font=theme.FONT_BODY_BOLD,
-                          fg=theme.TEXT_ON_DARK, bg=theme.PRIMARY,
-                          anchor="w", pady=6, cursor="hand2")
-        logout.pack(fill="x")
-        logout.bind("<Button-1>", lambda e=None: self.app.logout())
+        # account row: round profile picture next to the username.
+        # Log Out lives in the menu that pops up when you click this.
+        who_row = tk.Frame(bottom, bg=theme.PRIMARY)
+        who_row.pack(fill="x", pady=(0, 4))
+        pfp = utils.images.load_image("pfp.jpg", (34, 34), rounded=17)
+        pfp_lbl = tk.Label(who_row, image=pfp, bg=theme.PRIMARY, cursor="hand2")
+        pfp_lbl.image = pfp
+        pfp_lbl.pack(side="left", padx=(theme.PAD_LG, 8))
+        name_lbl = tk.Label(who_row, text=self._who(), font=theme.FONT_BODY,
+                            fg=theme.ACCENT_SOFT, bg=theme.PRIMARY,
+                            cursor="hand2")
+        name_lbl.pack(side="left")
+        self._who_row = who_row
+        pfp_lbl.bind("<Button-1>", self._open_account_menu)
+        name_lbl.bind("<Button-1>", self._open_account_menu)
 
         content = tk.Frame(self, bg=theme.BG_APP)
         content.pack(side="left", fill="both", expand=True)
@@ -286,6 +290,20 @@ class AdminShell(tk.Frame):
     def _who(self):
         """Shows who is signed in under the menu."""
         return (self.current_user["username"] or "").strip()
+
+    def _open_account_menu(self, event=None):
+        """Small menu under the account name - the only place with Log Out."""
+        menu = tk.Menu(self, tearoff=0, font=theme.FONT_BODY,
+                       bg=theme.BG_SURFACE, fg=theme.TEXT,
+                       activebackground=theme.BG_HOVER,
+                       activeforeground=theme.TEXT)
+        menu.add_command(label="Log Out", command=self.app.logout)
+        try:
+            menu.tk_popup(self._who_row.winfo_rootx(),
+                          self._who_row.winfo_rooty()
+                          + self._who_row.winfo_height() + 4)
+        finally:
+            menu.grab_release()
 
     def _hover(self, row, inside):
         """Sidebar hover color, skipping the active row."""

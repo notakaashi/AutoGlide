@@ -127,6 +127,29 @@ def attach(widget, photo):
     return photo
 
 
+def centered_photo(canvas, name, inset=48, rounded=28):
+    """Draws one photo floating in the middle of the canvas.
+
+    Like cover_photo but the picture doesn't bleed to the edges: it gets a
+    soft margin and rounded corners, and re-crops on resize.
+    """
+    def redraw(event=None):
+        width = max(canvas.winfo_width(), 1)
+        height = max(canvas.winfo_height(), 1)
+        canvas.delete("all")
+        box_w = max(width - inset * 2, 1)
+        box_h = max(height - inset * 2, 1)
+        photo = load_image(name, (box_w, box_h), cover=True, rounded=rounded)
+        attach(canvas, photo)
+        if photo:
+            canvas.create_image(width // 2, height // 2, image=photo,
+                                anchor="center")
+
+    canvas.bind("<Configure>", redraw)
+    canvas.after(80, redraw)
+    return redraw
+
+
 def cover_photo(canvas, name):
     """Fills a whole canvas with one photo, redrawing on resize.
 

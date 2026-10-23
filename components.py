@@ -575,7 +575,7 @@ class ScrollFrame(tk.Frame):
 class EntryField(tk.Frame):
     """A labeled text input with a focus border, placeholder, and error text."""
     def __init__(self, master, label, placeholder="", show=None, width=30,
-                 text=None, bg=None):
+                 text=None, bg=None, font=None, pad_y=8):
         bg = bg or bg_of(master)
         super().__init__(master, bg=bg)
         self._placeholder = placeholder
@@ -585,23 +585,28 @@ class EntryField(tk.Frame):
             tk.Label(self, text=label, font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
                      bg=bg).pack(anchor="w", pady=(0, 4))
 
+        # the border lives on a wrapper frame, and the entry pads itself
+        # inside it - otherwise the typing caret sits right against the wall
+        self._border = tk.Frame(self, bg=theme.BG_INPUT,
+                                highlightthickness=1,
+                                highlightbackground=theme.BORDER)
         self.var = tk.StringVar(value=text or "")
         options = {
             "textvariable": self.var,
-            "font": theme.FONT_BODY,
+            "font": font or theme.FONT_BODY,
             "bg": theme.BG_INPUT,
             "fg": theme.TEXT,
             "relief": "flat",
-            "highlightthickness": 1,
-            "highlightbackground": theme.BORDER,
-            "highlightcolor": theme.BORDER,
+            "bd": 0,
+            "highlightthickness": 0,
             "width": width,
             "insertbackground": theme.TEXT
         }
         if show:
             options["show"] = show
-        self.entry = tk.Entry(self, **options)
-        self.entry.pack(fill="x", ipady=8)
+        self.entry = tk.Entry(self._border, **options)
+        self.entry.pack(fill="x", ipadx=10, ipady=pad_y)
+        self._border.pack(fill="x")
         self.entry.bind("<FocusIn>", self._on_focus_in)
         self.entry.bind("<FocusOut>", self._on_focus_out)
         self.entry.bind("<KeyRelease>", self._on_type)
@@ -625,16 +630,16 @@ class EntryField(tk.Frame):
         self.entry.configure(fg=theme.TEXT)
 
     def _on_focus_in(self, event=None):
-        """Highlights the border and clears any placeholder."""
-        self.entry.configure(highlightbackground=theme.PRIMARY,
-                             highlightcolor=theme.PRIMARY, highlightthickness=1)
+        """Highlights the wrapper border and clears any placeholder."""
+        self._border.configure(highlightbackground=theme.PRIMARY,
+                               highlightcolor=theme.PRIMARY)
         if self._showing_placeholder:
             self._clear_placeholder()
 
     def _on_focus_out(self, event=None):
         """Restores the border and re-adds the placeholder if empty."""
-        self.entry.configure(highlightbackground=theme.BORDER,
-                             highlightcolor=theme.BORDER)
+        self._border.configure(highlightbackground=theme.BORDER,
+                               highlightcolor=theme.BORDER)
         if self._placeholder and self.var.get().strip() == "":
             self._show_placeholder()
 
@@ -659,15 +664,15 @@ class EntryField(tk.Frame):
         """Shows an error message under the field and colors the border."""
         self.error_label.configure(text=message)
         self.error_label.pack(anchor="w", pady=(4, 0))
-        self.entry.configure(highlightbackground=theme.DANGER,
-                             highlightcolor=theme.DANGER)
+        self._border.configure(highlightbackground=theme.DANGER,
+                               highlightcolor=theme.DANGER)
 
     def clear_error(self):
         """Removes the error text."""
         self.error_label.configure(text="")
         self.error_label.pack_forget()
-        self.entry.configure(highlightbackground=theme.BORDER,
-                             highlightcolor=theme.BORDER)
+        self._border.configure(highlightbackground=theme.BORDER,
+                               highlightcolor=theme.BORDER)
 
 
 # ---------------------------------------------------------------------------

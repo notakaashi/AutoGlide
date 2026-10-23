@@ -12,6 +12,7 @@ import tkinter as tk
 
 import theme
 import config
+import utils.images
 
 from components import ScrollFrame
 from screens.marketing import MarketingBody
@@ -33,11 +34,12 @@ class LandingScreen(tk.Frame):
 
         brand = tk.Frame(nav, bg=theme.BG_SURFACE)
         brand.pack(side="left", padx=(theme.PAD_LG, 0), pady=theme.PAD_SM)
-        dot = tk.Canvas(brand, width=10, height=10, bg=theme.BG_SURFACE,
-                        highlightthickness=0)
-        dot.create_oval(1, 1, 9, 9, fill=theme.PRIMARY, outline=theme.PRIMARY)
-        dot.pack(side="left")
-        tk.Label(brand, text=" AutoGlide", font=theme.FONT_BRAND,
+        # the actual logo picture, not the old green dot
+        logo = utils.images.load_image("logo.jpg", (38, 38), rounded=8)
+        logo_lbl = tk.Label(brand, image=logo, bg=theme.BG_SURFACE)
+        logo_lbl.image = logo
+        logo_lbl.pack(side="left", padx=(0, 6))
+        tk.Label(brand, text="AutoGlide", font=theme.FONT_BRAND,
                  fg=theme.PRIMARY, bg=theme.BG_SURFACE).pack(side="left")
 
         buttons = tk.Frame(nav, bg=theme.BG_SURFACE)

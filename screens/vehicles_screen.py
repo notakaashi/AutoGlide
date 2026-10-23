@@ -114,15 +114,16 @@ class VehiclesView(tk.Frame):
             left.pack(side="left", fill="x", expand=True)
             head = tk.Frame(left, bg=theme.BG_SURFACE)
             head.pack(fill="x")
-            tk.Label(head, text=v["label"], font=theme.FONT_BODY_BOLD,
+            # bigger text on the cards - the old tiny sizes were hard to read
+            tk.Label(head, text=v["label"], font=theme.FONT_CARD_TITLE,
                      fg=theme.TEXT, bg=theme.BG_SURFACE).pack(side="left")
             tk.Label(head, text="  " + v["vehicle_type"],
-                     font=theme.FONT_TINY, fg=theme.PRIMARY,
+                     font=theme.FONT_SMALL, fg=theme.PRIMARY,
                      bg=theme.BG_SURFACE).pack(side="left")
             detail = [v["make"], v["model"], v["color"], v["plate"]]
             text = " - ".join(p for p in detail if p)
             tk.Label(left, text=text if text else "(no details)",
-                     font=theme.FONT_SMALL, fg=theme.TEXT_MUTED,
+                     font=theme.FONT_BODY, fg=theme.TEXT_MUTED,
                      bg=theme.BG_SURFACE).pack(anchor="w")
             actions = tk.Frame(card.body, bg=theme.BG_SURFACE)
             actions.pack(side="right")

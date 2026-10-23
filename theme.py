@@ -72,6 +72,7 @@ FONT_PRICE = (FONT_FAMILY, 22, "bold")
 
 FONT_BODY = (FONT_FAMILY, 13, "normal")
 FONT_BODY_BOLD = (FONT_FAMILY, 13, "bold")
+FONT_INPUT = (FONT_FAMILY, 14, "normal")   # bigger text for auth-screen boxes
 FONT_BUTTON = (FONT_FAMILY, 13, "bold")
 FONT_SMALL = (FONT_FAMILY, 12, "normal")
 FONT_SMALL_BOLD = (FONT_FAMILY, 12, "bold")
