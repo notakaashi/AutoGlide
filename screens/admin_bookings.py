@@ -15,7 +15,8 @@ import config
 import database
 
 from components import (Card, Button, StatusPill, EntryField, DataTable,
-                        SegmentedControl, ScrollFrame, Toast)
+                        SegmentedControl, ScrollFrame, Toast, PageHeader,
+                        EmptyState)
 
 
 class AdminBookingsView(tk.Frame):
@@ -36,8 +37,10 @@ class AdminBookingsView(tk.Frame):
         """Filter bar on top, table left, details card right."""
         head = tk.Frame(self, bg=theme.BG_APP)
         head.pack(fill="x", padx=theme.PAD_LG, pady=(theme.PAD_LG, 0))
-        tk.Label(head, text="Bookings", font=theme.FONT_SECTION,
-                 fg=theme.TEXT, bg=theme.BG_APP).pack(anchor="w")
+        # same header style as the dashboard: title + muted subtitle
+        PageHeader(head, "Bookings",
+                   "Find a booking, then update its status here.").pack(
+                       anchor="w")
 
         # search box on its own row
         search_row = tk.Frame(head, bg=theme.BG_APP)
@@ -158,7 +161,7 @@ class AdminBookingsView(tk.Frame):
         for row in rows:
             table_rows.append({
                 "id": "#" + str(row["id"]),
-                "client": row["client_name"],
+                "client": (row["client_name"] or "").title(),
                 "package": config.tier_name(row["tier_id"]),
                 "when": config.friendly_date(row["booking_date"]) + "  -  "
                         + row["time_slot"],
@@ -200,14 +203,12 @@ class AdminBookingsView(tk.Frame):
             widget.destroy()
         booking = self._find(self._selected)
         if booking is None:
-            tk.Label(self._detail, text="Select a booking",
-                     font=theme.FONT_BODY, fg=theme.TEXT_MUTED,
-                     bg=theme.BG_SURFACE, wraplength=260,
-                     justify="left").pack(pady=theme.PAD_LG)
+            EmptyState(self._detail, "Select a booking",
+                       bg=theme.BG_SURFACE, icon="\u25A4").pack(fill="x")
             self._fit_detail()
             return
         self._label("Client", "#" + str(booking["user_id"]) + "  "
-                    + (booking["client_name"] or "-"))
+                    + (booking["client_name"] or "-").title())
         self._label("Contact", (booking["client_phone"] or "-") + "   "
                     + (booking["client_email"] or "-"))
         self._label("Package", config.tier_name(booking["tier_id"]) + " ("

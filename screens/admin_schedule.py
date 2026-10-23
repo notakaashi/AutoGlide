@@ -18,7 +18,7 @@ import config
 import database
 
 from components import (Card, Button, StatusPill, ScrollFrame, Toast,
-                        rounded_rectangle)
+                        rounded_rectangle, PageHeader, EmptyState)
 
 
 def _today():
@@ -54,9 +54,12 @@ class AdminScheduleView(tk.Frame):
         """Title bar, then calendar left and a 340px day panel right."""
         head = tk.Frame(self, bg=theme.BG_APP)
         head.pack(fill="x", padx=theme.PAD_LG, pady=(theme.PAD_LG, 0))
-        self._title = tk.Label(head, text="Schedule", font=theme.FONT_SECTION,
-                               fg=theme.TEXT, bg=theme.BG_APP)
-        self._title.pack(side="left")
+        # same header style as the dashboard: title + muted subtitle
+        self._header = PageHeader(head, "Schedule",
+                                  "Pick a day to see and answer its "
+                                  "bookings.")
+        self._header.pack(side="left")
+        self._title = self._header.title_label
 
         nav = tk.Frame(head, bg=theme.BG_APP)
         nav.pack(side="right")
@@ -234,11 +237,8 @@ class AdminScheduleView(tk.Frame):
                  bg=theme.BG_SURFACE).pack(anchor="w", padx=theme.PAD_SM,
                                            pady=(2, 6))
         if not rows:
-            tk.Label(body, text="No bookings for this day.",
-                     font=theme.FONT_BODY, fg=theme.TEXT_MUTED,
-                     bg=theme.BG_SURFACE).pack(anchor="w",
-                                               padx=theme.PAD_SM,
-                                               pady=(8, 0))
+            EmptyState(body, "No bookings for this day.",
+                       bg=theme.BG_SURFACE, icon="\u25A5").pack(fill="x")
             return
         rows.sort(key=lambda r: r["time_slot"])
         for row in rows:
@@ -246,34 +246,37 @@ class AdminScheduleView(tk.Frame):
 
     def _day_row(self, row):
         """One booking in the day panel, with answers for Pending rows."""
-        item = tk.Frame(self._day_list, bg=theme.BG_HOVER, cursor="hand2")
+        # soft row style, same as the dashboard lists
+        item = tk.Frame(self._day_list, bg=theme.ROW_SOFT, cursor="hand2")
         item.pack(fill="x", pady=3, padx=theme.PAD_SM)
-        head = tk.Frame(item, bg=theme.BG_HOVER)
+        head = tk.Frame(item, bg=theme.ROW_SOFT)
         head.pack(fill="x")
         tk.Label(head, text=row["time_slot"], font=theme.FONT_BODY_BOLD,
-                 fg=theme.TEXT, bg=theme.BG_HOVER).pack(side="left",
+                 fg=theme.TEXT, bg=theme.ROW_SOFT).pack(side="left",
                                                         padx=8,
                                                         pady=(6, 0))
         StatusPill(head, row["status"]).pack(side="right", padx=8)
-        tk.Label(item, text=row["client_name"] or "Client #"
-                 + str(row["user_id"]), font=theme.FONT_SMALL,
-                 fg=theme.TEXT, bg=theme.BG_HOVER).pack(anchor="w",
+        client = (row["client_name"] or "Client #"
+                  + str(row["user_id"])).title()
+        tk.Label(item, text=client, font=theme.FONT_BODY,
+                 fg=theme.TEXT, bg=theme.ROW_SOFT).pack(anchor="w",
                                                         padx=8)
         tk.Label(item, text=config.tier_name(row["tier_id"]) + "  -  "
                  + (row["city"] or ""), font=theme.FONT_TINY,
-                 fg=theme.TEXT_MUTED, bg=theme.BG_HOVER).pack(
+                 fg=theme.TEXT_MUTED, bg=theme.ROW_SOFT).pack(
                      anchor="w", padx=8)
         if row["status"] == "Pending":
-            actions = tk.Frame(item, bg=theme.BG_HOVER)
+            actions = tk.Frame(item, bg=theme.ROW_SOFT)
             actions.pack(anchor="w", padx=8, pady=(2, 6))
             Button(actions, text="Accept", height=32,
                    command=lambda r=row: self._answer(r, "Confirmed"),
                    variant="primary").pack(side="left")
             Button(actions, text="Decline", height=32, variant="ghost",
+                   bg=theme.ROW_SOFT,
                    command=lambda r=row: self._answer(r, "Cancelled")
                    ).pack(side="left", padx=(6, 0))
         else:
-            tk.Frame(item, bg=theme.BG_HOVER, height=6).pack(padx=8)
+            tk.Frame(item, bg=theme.ROW_SOFT, height=6).pack(padx=8)
         for widget in (item,):
             widget.bind("<Button-1>",
                         lambda e, bid=row["id"]: self._open_booking(bid))

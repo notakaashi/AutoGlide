@@ -15,11 +15,20 @@ import theme
 import config
 import database
 
-from components import Card, Button, StatusPill, ScrollFrame, Toast
+from components import (Card, Button, StatusPill, ScrollFrame, Toast,
+                        IconBadge, EmptyState)
 
 
 class AdminDashboard(tk.Frame):
     """Staff overview: numbers, chart, pending answers, today's list."""
+    # icon per stat card (MDL2 glyphs, peso uses the currency sign)
+    STAT_ICONS = {
+        "Bookings today": "\uE787",
+        "Pending": "\uE917",
+        "Bookings this month": "\uE9D2",
+        "Completed revenue": "\u20b1",
+    }
+
     def __init__(self, master, shell):
         self.shell = shell
         self.app = shell.app
@@ -44,10 +53,26 @@ class AdminDashboard(tk.Frame):
 
         head = tk.Frame(page, bg=theme.BG_APP)
         head.pack(fill="x", padx=theme.PAD_LG, pady=(theme.PAD_LG, 0))
-        tk.Label(head, text="Dashboard", font=theme.FONT_SECTION,
-                 fg=theme.TEXT, bg=theme.BG_APP).pack(anchor="w")
-        tk.Label(head, text=_today_line(), font=theme.FONT_BODY,
-                 fg=theme.TEXT_MUTED, bg=theme.BG_APP).pack(anchor="w")
+        left = tk.Frame(head, bg=theme.BG_APP)
+        left.pack(side="left", fill="x", expand=True)
+        # friendly greeting instead of a plain page title
+        tk.Label(left, text=_greeting(self.shell.current_user),
+                 font=theme.FONT_SECTION, fg=theme.TEXT,
+                 bg=theme.BG_APP).pack(anchor="w")
+        tk.Label(left, text="Here is how things are going today.",
+                 font=theme.FONT_BODY, fg=theme.TEXT_MUTED,
+                 bg=theme.BG_APP).pack(anchor="w")
+
+        right = tk.Frame(head, bg=theme.BG_APP)
+        right.pack(side="right")
+        Button(right, text="View bookings", variant="primary", height=40,
+               command=lambda: self.shell.switch_view("bookings")).pack(
+                   side="right")
+        # small rounded date/time chip beside the button
+        chip = Card(right, radius=theme.RADIUS_MD, pad=theme.PAD_SM)
+        chip.pack(side="right", padx=(0, theme.PAD_SM))
+        tk.Label(chip.body, text=_clock_line(), font=theme.FONT_SMALL,
+                 fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE).pack()
 
         self._build_stats(page)
 
@@ -87,29 +112,37 @@ class AdminDashboard(tk.Frame):
             self._paint_stat(body, caption, value)
 
     def _paint_stat(self, body, caption, value):
-        """(Re)paints one stat card content."""
+        """(Re)paints one stat card: icon badge, caption, big number."""
         for widget in body.winfo_children():
             widget.destroy()
-        tk.Label(body, text=caption, font=theme.FONT_SMALL,
-                 fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE,
-                 wraplength=150, justify="left").pack(anchor="w")
+        glyph = self.STAT_ICONS.get(caption, "\uE80F")
+        badge_font = theme.FONT_BODY_BOLD if glyph == "\u20b1" else None
+        top = tk.Frame(body, bg=theme.BG_SURFACE)
+        top.pack(fill="x")
+        IconBadge(top, glyph, size=36, font=badge_font).pack(side="left")
+        tk.Label(top, text=caption, font=theme.FONT_SMALL,
+                 fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE, wraplength=120,
+                 justify="left").pack(side="left", padx=(10, 0))
         tk.Label(body, text=value, font=theme.FONT_TITLE, fg=theme.TEXT,
-                 bg=theme.BG_SURFACE).pack(anchor="w", pady=(4, 0))
+                 bg=theme.BG_SURFACE).pack(anchor="w",
+                                           pady=(theme.PAD_SM, 0))
 
     def _build_chart(self, columns):
         """Card with the last-7-days canvas chart (oldest to newest)."""
-        chart_card = Card(columns, radius=theme.RADIUS_LG, pad=theme.PAD_LG)
+        chart_card = Card(columns, radius=theme.RADIUS_LG, pad=theme.PAD_LG,
+                          stretch=True)
         chart_card.pack(side="left", fill="both", expand=True,
                         padx=(0, theme.PAD_MD))
         tk.Label(chart_card.body, text="Bookings in the last 7 days",
                  font=theme.FONT_CARD_TITLE, fg=theme.TEXT,
                  bg=theme.BG_SURFACE).pack(anchor="w")
-        self._chart = tk.Canvas(chart_card.body, height=170,
+        # fill="both" lets the chart use the full card height
+        self._chart = tk.Canvas(chart_card.body, height=220,
                                 bg=theme.BG_SURFACE, highlightthickness=0)
-        self._chart.pack(fill="x", pady=(theme.PAD_SM, 0))
+        self._chart.pack(fill="both", expand=True, pady=(theme.PAD_SM, 0))
         # the canvas reports width 1 at build time, so repaint once the card
-        # gives it its real width (after_idle keeps us out of the Configure
-        # handler; the chart is fixed height: no loop risk)
+        # gives it its real size (after_idle keeps us out of the Configure
+        # handler; the chart is inside a stretch card, no loop risk)
         self._chart.bind(
             "<Configure>", lambda e: self.after_idle(self._paint_chart))
         self._paint_chart()
@@ -135,46 +168,52 @@ class AdminDashboard(tk.Frame):
     # CHART
     # ------------------------------------------------------------------
     def _paint_chart(self):
-        """Draws gridlines, 7 bars (oldest left) and day labels."""
+        """Draws y-axis numbers, dotted gridlines, 7 bars and day labels."""
         if not self.winfo_exists():
             return
         self._chart.delete("all")
         counts = database.get_bookings_last_days(7)
         self._chart.update_idletasks()
-        width = max(self._chart.winfo_width(), 420)
-        height = 160
-        top_pad = 14
+        width = max(self._chart.winfo_width(), 260)
+        height = max(self._chart.winfo_height(), 180)
+        gutter = 34
+        top_pad = 22
         bottom_pad = 30
-        usable = height - top_pad - bottom_pad
-        biggest = max(1, max(counts.values()) if counts else 1)
-        slot_w = width / 7.0
-        # light gridlines every quarter of the tallest bar
-        for i in range(4):
-            y = top_pad + usable - usable * i / 3.0
-            self._chart.create_line(0, y, width, y,
+        usable = max(40, height - top_pad - bottom_pad)
+        values = list(counts.values()) or [0]
+        biggest = max(1, max(values))
+        # round the top label up to a multiple of 4 so ticks stay whole
+        y_max = max(4, ((biggest + 3) // 4) * 4)
+        baseline = top_pad + usable
+        # y-axis numbers + light dotted gridlines (0 at the bottom)
+        for i in range(5):
+            y = baseline - usable * i / 4.0
+            self._chart.create_line(gutter, y, width, y,
                                     fill=theme.BORDER, dash=(2, 3))
+            self._chart.create_text(gutter - 8, y, anchor="e",
+                                    text=str(int(round(y_max * i / 4.0))),
+                                    font=theme.FONT_TINY,
+                                    fill=theme.TEXT_MUTED)
+        slot_w = (width - gutter) / 7.0
         # oldest day first: offsets run 6 (a week ago) down to 0 (today)
         for index, offset in enumerate(range(6, -1, -1)):
             day = datetime.date.today() - datetime.timedelta(days=offset)
             count = counts.get(day.isoformat(), 0)
-            # oldest day (index 0) on the left
-            x = index * slot_w
+            x = gutter + index * slot_w
             bar_w = slot_w * 0.44
-            bar_h = 0 if count == 0 else max(6, usable * count / biggest)
+            bar_h = 0 if count == 0 else max(6, usable * count / float(y_max))
             x0 = x + (slot_w - bar_w) / 2
-            y1 = top_pad + usable - bar_h
+            y1 = baseline - bar_h
             self._chart.create_rectangle(
-                x0, y1, x0 + bar_w, top_pad + usable, fill=theme.ACCENT,
+                x0, y1, x0 + bar_w, baseline, fill=theme.ACCENT,
                 outline=theme.ACCENT)
-            if count:
-                self._chart.create_text(x0 + bar_w / 2, y1 - 8,
-                                        text=str(count),
-                                        font=theme.FONT_SMALL_BOLD,
-                                        fill=theme.TEXT)
-            label = day.strftime("%a %d") if index == 6 \
-                else day.strftime("%a %d")
-            self._chart.create_text(x0 + bar_w / 2, top_pad + usable + 12,
-                                    text=label, font=theme.FONT_TINY,
+            # count above every bar, even the zero ones
+            self._chart.create_text(x0 + bar_w / 2, y1 - 9, text=str(count),
+                                    font=theme.FONT_SMALL_BOLD,
+                                    fill=theme.TEXT)
+            self._chart.create_text(x0 + bar_w / 2, baseline + 12,
+                                    text=day.strftime("%a %d"),
+                                    font=theme.FONT_TINY,
                                     fill=theme.TEXT_MUTED)
 
     # ------------------------------------------------------------------
@@ -184,12 +223,12 @@ class AdminDashboard(tk.Frame):
         """Pending bookings first, each with Accept / Decline buttons."""
         for widget in self._pending_list.winfo_children():
             widget.destroy()
-        rows = []
-        for row in database.get_bookings_filtered(status="Pending"):
-            rows.append(row)
+        rows = database.get_bookings_filtered(status="Pending")
         if not rows:
-            self._pending_note.configure(
-                text="Nothing waiting - every request has an answer.")
+            self._pending_note.configure(text="")
+            EmptyState(self._pending_list,
+                       "Nothing waiting. Every request has an answer.",
+                       bg=theme.BG_SURFACE, icon="\u2713").pack(fill="x")
             return
         self._pending_note.configure(
             text=str(len(rows)) + " request(s) waiting.")
@@ -197,29 +236,34 @@ class AdminDashboard(tk.Frame):
             self._pending_row(row)
 
     def _pending_row(self, row):
-        """One pending booking with its two answer buttons."""
-        client = row["client_name"] or ("Client #" + str(row["user_id"]))
-        when = datetime.date.fromisoformat(row["booking_date"]).strftime("%a, %b %d") \
-            + ", " + row["time_slot"]
-        area = row["city"] or ""
-        item = tk.Frame(self._pending_list, bg=theme.BG_SURFACE)
+        """One pending booking as a soft row with right-aligned answers."""
+        client = (row["client_name"] or "Client #" + str(row["user_id"])).title()
+        when = datetime.date.fromisoformat(row["booking_date"]).strftime(
+            "%a, %b %d") + ", " + row["time_slot"]
+        area = (row["city"] or "").title()
+        item = tk.Frame(self._pending_list, bg=theme.ROW_SOFT)
         item.pack(fill="x", pady=(theme.PAD_SM, 0))
-        tk.Label(item, text="#%d  %s" % (row["id"], client),
+        inner = tk.Frame(item, bg=theme.ROW_SOFT)
+        inner.pack(fill="x", padx=theme.PAD_MD, pady=theme.PAD_SM)
+        left = tk.Frame(inner, bg=theme.ROW_SOFT)
+        left.pack(side="left", fill="x", expand=True)
+        tk.Label(left, text="#" + str(row["id"]) + "  " + client,
                  font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
-                 bg=theme.BG_SURFACE).pack(anchor="w")
-        tk.Label(item, text=when + "  -  " + config.tier_name(row["tier_id"]),
+                 bg=theme.ROW_SOFT).pack(anchor="w")
+        tk.Label(left, text=when + "  -  " + config.tier_name(row["tier_id"]),
                  font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
-                 bg=theme.BG_SURFACE).pack(anchor="w")
-        tk.Label(item, text=area, font=theme.FONT_TINY,
-                 fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE).pack(anchor="w")
-        actions = tk.Frame(item, bg=theme.BG_SURFACE)
-        actions.pack(anchor="w", pady=(4, 0))
-        Button(actions, text="Accept", height=34,
+                 bg=theme.ROW_SOFT).pack(anchor="w")
+        tk.Label(left, text=area, font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
+                 bg=theme.ROW_SOFT).pack(anchor="w")
+        actions = tk.Frame(inner, bg=theme.ROW_SOFT)
+        actions.pack(side="right")
+        Button(actions, text="Accept", height=32,
                command=lambda r=row: self._answer(r, "Confirmed"),
                variant="primary").pack(side="left")
-        Button(actions, text="Decline", height=34, variant="ghost",
-               command=lambda r=row: self._answer(r, "Cancelled")
-               ).pack(side="left", padx=(theme.PAD_SM, 0))
+        Button(actions, text="Decline", height=32, variant="ghost",
+               bg=theme.ROW_SOFT,
+               command=lambda r=row: self._answer(r, "Cancelled")).pack(
+                   side="left", padx=(theme.PAD_SM, 0))
 
     def _answer(self, row, status):
         """Accept or Decline updates the DB right away, then repaints."""
@@ -253,28 +297,28 @@ class AdminDashboard(tk.Frame):
             widget.destroy()
         rows = database.get_bookings_on_date(_iso_today())
         if not rows:
-            tk.Label(self._today_list, text="No bookings scheduled today.",
-                     font=theme.FONT_BODY, fg=theme.TEXT_MUTED,
-                     bg=theme.BG_SURFACE).pack(anchor="w",
-                                               pady=(theme.PAD_SM, 0))
+            EmptyState(self._today_list,
+                       "No bookings scheduled today.",
+                       bg=theme.BG_SURFACE, icon="\u25A5").pack(fill="x")
             return
         rows.sort(key=lambda r: r["time_slot"])
         for row in rows:
-            line = tk.Frame(self._today_list, bg=theme.BG_SOFT)
-            line.pack(fill="x", pady=2)
-            left = tk.Frame(line, bg=theme.BG_SOFT)
+            # soft row, same style as the pending requests above
+            line = tk.Frame(self._today_list, bg=theme.ROW_SOFT)
+            line.pack(fill="x", pady=(theme.PAD_SM, 0))
+            inner = tk.Frame(line, bg=theme.ROW_SOFT)
+            inner.pack(fill="x", padx=theme.PAD_MD, pady=theme.PAD_SM)
+            left = tk.Frame(inner, bg=theme.ROW_SOFT)
             left.pack(side="left", fill="x", expand=True)
-            tk.Label(left, text=row["time_slot"] + "   "
-                     + (row["client_name"] or "Client #"
-                        + str(row["user_id"])), font=theme.FONT_BODY_BOLD,
-                     fg=theme.TEXT, bg=theme.BG_SOFT).pack(anchor="w",
-                                                           padx=8,
-                                                           pady=(6, 0))
+            client = (row["client_name"] or "Client #"
+                      + str(row["user_id"])).title()
+            tk.Label(left, text=row["time_slot"] + "   " + client,
+                     font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
+                     bg=theme.ROW_SOFT).pack(anchor="w")
             tk.Label(left, text=config.tier_name(row["tier_id"]),
                      font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
-                     bg=theme.BG_SOFT).pack(anchor="w", padx=8,
-                                            pady=(0, 6))
-            StatusPill(line, row["status"]).pack(side="right", padx=8)
+                     bg=theme.ROW_SOFT).pack(anchor="w")
+            StatusPill(inner, row["status"]).pack(side="right")
 
     # ------------------------------------------------------------------
     # REFRESH (after an answer is clicked)
@@ -308,6 +352,19 @@ def _iso_today():
     return datetime.date.today().isoformat()
 
 
-def _today_line():
-    """'Wednesday, Oct 21, 2026' for the dashboard header."""
-    return datetime.date.today().strftime("%A, %b %d, %Y")
+def _greeting(user):
+    """'Good evening, AutoGlide Admin.' from the clock and the user."""
+    hour = datetime.datetime.now().hour
+    if hour < 12:
+        part = "morning"
+    elif hour < 18:
+        part = "afternoon"
+    else:
+        part = "evening"
+    name = (user["full_name"] or user["username"] or "there").title()
+    return "Good " + part + ", " + name + "."
+
+
+def _clock_line():
+    """'Thu, Oct 23  -  6:42 PM' for the dashboard chip."""
+    return datetime.datetime.now().strftime("%a, %b %d  -  %I:%M %p")

@@ -13,7 +13,8 @@ import theme
 import config
 import database
 
-from components import Card, EntryField, DataTable, Button
+from components import (Card, EntryField, DataTable, Button, PageHeader,
+                        EmptyState)
 
 
 class AdminClientsView(tk.Frame):
@@ -30,11 +31,9 @@ class AdminClientsView(tk.Frame):
         """Title, search, table left, details card right."""
         head = tk.Frame(self, bg=theme.BG_APP)
         head.pack(fill="x", padx=theme.PAD_LG, pady=(theme.PAD_LG, 0))
-        tk.Label(head, text="Clients", font=theme.FONT_SECTION,
-                 fg=theme.TEXT, bg=theme.BG_APP).pack(anchor="w")
-        tk.Label(head, text="Client accounts only - staff accounts stay "
-                 "private.", font=theme.FONT_BODY, fg=theme.TEXT_MUTED,
-                 bg=theme.BG_APP).pack(anchor="w")
+        # same header style as the dashboard: title + muted subtitle
+        PageHeader(head, "Clients", "Client accounts only - staff accounts "
+                   "stay private.").pack(anchor="w")
 
         bar = tk.Frame(head, bg=theme.BG_APP)
         bar.pack(fill="x", pady=(theme.PAD_MD, 0))
@@ -87,7 +86,7 @@ class AdminClientsView(tk.Frame):
                 continue
             rows.append({
                 "id": str(client["id"]),
-                "name": client["full_name"],
+                "name": (client["full_name"] or "").title(),
                 "username": client["username"],
                 "phone": client["phone"] or "-",
                 "email": client["email"] or "-",
@@ -116,12 +115,10 @@ class AdminClientsView(tk.Frame):
             if row["_user"]["id"] == self._selected:
                 client = row["_user"]
         if client is None:
-            tk.Label(self._detail, text="Select a client",
-                     font=theme.FONT_BODY, fg=theme.TEXT_MUTED,
-                     bg=theme.BG_SURFACE, wraplength=260,
-                     justify="left").pack(pady=theme.PAD_LG)
+            EmptyState(self._detail, "Select a client",
+                       bg=theme.BG_SURFACE, icon="\u25A4").pack(fill="x")
             return
-        self._line("Name", client["full_name"])
+        self._line("Name", (client["full_name"] or "").title())
         self._line("Username", client["username"])
         self._line("Phone", client["phone"] or "-")
         self._line("Email", client["email"] or "-")

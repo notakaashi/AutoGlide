@@ -23,7 +23,7 @@ import database
 import validators
 
 from components import (Card, Button, DateField, Chip, Toast, EntryField,
-                        CheckField, ScrollFrame)
+                        CheckField, ScrollFrame, SelectCard)
 
 
 class BookingWizard(tk.Frame):
@@ -35,10 +35,12 @@ class BookingWizard(tk.Frame):
         self.app = shell.app
         self.user = shell.current_user
         super().__init__(master, bg=theme.BG_APP)
-        self._dots = []
         self._tier_cards = []
         self._vehicle_rows = []
         self._address_rows = []
+        self._vehicle_cards = {}
+        self._address_cards = {}
+        self._vtype_chips = {}
         self._price_labels = []
         self._addon_chips = {}
         self._slot_chips = {}
@@ -82,40 +84,61 @@ class BookingWizard(tk.Frame):
         self._draft["time_slot"] = None
 
     # ------------------------------------------------------------------
-    # HEADER (steps display + dots)
+    # HEADER (step indicator)
     # ------------------------------------------------------------------
     def _build_header(self):
-        """Small caption with the clinic-style step dots."""
+        """Title on the left, a numbered five-step indicator on the right."""
         top = tk.Frame(self.body, bg=theme.BG_SURFACE)
         top.pack(fill="x")
         left = tk.Frame(top, bg=theme.BG_SURFACE)
         left.pack(side="left")
         tk.Label(left, text="New Booking", font=theme.FONT_SECTION,
                  fg=theme.TEXT, bg=theme.BG_SURFACE).pack(anchor="w")
-        self._step_label = tk.Label(left, text="", font=theme.FONT_TINY,
-                                    fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE)
+        self._step_label = tk.Label(left, text="", font=theme.FONT_SMALL,
+                                    fg=theme.TEXT_MUTED,
+                                    bg=theme.BG_SURFACE)
         self._step_label.pack(anchor="w")
-        dots = tk.Frame(top, bg=theme.BG_SURFACE)
-        dots.pack(side="right")
-        for i in range(5):
-            dot = tk.Canvas(dots, width=16, height=16, bg=theme.BG_SURFACE,
-                            highlightthickness=0)
-            dot.pack(side="left", padx=2)
-            self._dots.append(dot)
+        # one canvas draws the circles, the joining line and the names
+        self._steps = tk.Canvas(top, width=520, height=64,
+                                bg=theme.BG_SURFACE, highlightthickness=0)
+        self._steps.pack(side="right")
 
-    def _paint_dots(self, step):
-        """Paints one dot per step - big and filled when reached."""
-        for i, dot in enumerate(self._dots):
-            dot.delete("all")
-            done = i <= step
-            color = theme.PRIMARY if done else theme.BG_SOFT
-            size = 9 if i == step else 6
-            off = (16 - size) // 2
-            dot.create_oval(off, off, off + size, off + size,
-                            fill=color, outline=color)
-            if i == step:
-                dot.create_oval(off, off, off + size, off + size,
-                                outline=theme.PRIMARY, width=2)
+    def _paint_steps(self, step):
+        """Done = green with a check, current = green ring, rest = grey."""
+        c = self._steps
+        c.delete("all")
+        start, gap, cy = 30, 115, 22
+        for i in range(len(self.STEPS)):
+            x = start + i * gap
+            if i:
+                x_prev = start + (i - 1) * gap
+                color = theme.PRIMARY if i <= step else theme.BORDER
+                c.create_line(x_prev + 14, cy, x - 14, cy,
+                              fill=color, width=2)
+        for i, name in enumerate(self.STEPS):
+            x = start + i * gap
+            if i < step:
+                c.create_oval(x - 12, cy - 12, x + 12, cy + 12,
+                              fill=theme.PRIMARY, outline=theme.PRIMARY)
+                c.create_text(x, cy, text="\u2713",
+                              font=theme.FONT_SMALL_BOLD,
+                              fill=theme.TEXT_ON_DARK)
+            elif i == step:
+                c.create_oval(x - 12, cy - 12, x + 12, cy + 12,
+                              fill=theme.BG_SURFACE, outline=theme.PRIMARY,
+                              width=2)
+                c.create_text(x, cy, text=str(i + 1),
+                              font=theme.FONT_SMALL_BOLD,
+                              fill=theme.PRIMARY)
+            else:
+                c.create_oval(x - 12, cy - 12, x + 12, cy + 12,
+                              fill=theme.BG_SOFT, outline=theme.BORDER)
+                c.create_text(x, cy, text=str(i + 1),
+                              font=theme.FONT_SMALL_BOLD,
+                              fill=theme.TEXT_FAINT)
+            c.create_text(x, 46, text=name, font=theme.FONT_TINY,
+                          fill=theme.PRIMARY if i <= step
+                          else theme.TEXT_FAINT)
 
     # ------------------------------------------------------------------
     # BODY + FOOTER
@@ -141,25 +164,26 @@ class BookingWizard(tk.Frame):
         foot = tk.Frame(self.body, bg=theme.BG_SURFACE)
         foot.pack(fill="x", side="bottom", pady=(theme.PAD_MD, 0))
         self._footer = foot
+        # Back sits on the left edge, the primary action on the right edge
         if step > 0:
             Button(foot, text="Back",
                    command=lambda: self._go(step - 1),
-                   variant="ghost").pack(side="right", padx=(8, 0))
+                   variant="ghost", height=46).pack(side="left")
         if step < 4:
             Button(foot, text="Continue",
                    command=lambda: self._go(step + 1),
-                   variant="primary").pack(side="right")
+                   variant="primary", height=46).pack(side="right")
         else:
             Button(foot, text="Book it",
-                   command=self._confirm, variant="primary").pack(side="right")
+                   command=self._confirm, variant="primary",
+                   height=46).pack(side="right")
 
     def render_step(self):
         """Shows the current step inside the card."""
         step = self._draft.get("step", 0)
         self._step_label.configure(
-            text="Booking steps - step " + str(step + 1) + " of 5: "
-            + self.STEPS[step])
-        self._paint_dots(step)
+            text="Step " + str(step + 1) + " of 5  -  " + self.STEPS[step])
+        self._paint_steps(step)
         self._slot_chips = {}
         self._addon_chips = {}
         # Price labels belong to one step only - old ones die with the
@@ -203,9 +227,10 @@ class BookingWizard(tk.Frame):
     # STEP 1 - VEHICLE
     # ------------------------------------------------------------------
     def _step_vehicle(self):
-        """Choose a saved vehicle or type a new one."""
+        """Choose a saved vehicle card or type a new one."""
         self._clear_step()
         self._vehicle_rows = []
+        self._vehicle_cards = {}
         wrap = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
         wrap.pack(fill="x")
         if self._saved_vehicles:
@@ -221,29 +246,29 @@ class BookingWizard(tk.Frame):
             if chosen.get("id"):
                 start = str(chosen["id"])
             self._vehicle_choice = tk.StringVar(value=str(start))
+            # selectable cards instead of the old tiny radios
             for v in self._saved_vehicles:
-                item = tk.Frame(saved, bg=theme.BG_SOFT)
-                item.pack(fill="x", pady=3)
-                radio = tk.Radiobutton(item, variable=self._vehicle_choice,
-                                       value=str(v["id"]), command=self._pick_vehicle,
-                                       bg=theme.BG_SOFT, cursor="hand2")
-                radio.pack(side="left", padx=(8, 4))
                 desc = database.vehicle_desc(
                     v["vehicle_type"], v["make"], v["model"],
                     v["color"], v["plate"])
-                tk.Label(item, text=desc, font=theme.FONT_BODY,
-                         fg=theme.TEXT, bg=theme.BG_SOFT).pack(
-                             side="left", pady=6)
-                self._vehicle_rows.append(item)
-            # last row: use the form instead of a saved vehicle
-            fresh_row = tk.Frame(saved, bg=theme.BG_SOFT)
-            fresh_row.pack(fill="x", pady=(0, 6))
-            tk.Radiobutton(fresh_row, variable=self._vehicle_choice,
-                           value="new", command=self._pick_new_vehicle,
-                           text="+ Type a new vehicle",
-                           bg=theme.BG_SOFT, cursor="hand2").pack(
-                               side="left", padx=(8, 4), pady=6)
-            self._vehicle_rows.append(fresh_row)
+                card = SelectCard(
+                    saved,
+                    title=v["label"] + "  -  " + v["vehicle_type"],
+                    subtitle=desc, height=60,
+                    selected=str(v["id"]) == str(start),
+                    command=lambda vid=v["id"]: self._select_vehicle(vid))
+                card.pack(fill="x", pady=(0, 6))
+                self._vehicle_cards[str(v["id"])] = card
+                self._vehicle_rows.append(card)
+            # last card: use the form instead of a saved vehicle
+            new_card = SelectCard(
+                saved, title="+ Type a new vehicle",
+                subtitle="Enter the details below", height=60,
+                selected=str(start) == "new",
+                command=self._pick_new_vehicle)
+            new_card.pack(fill="x", pady=(0, 6))
+            self._vehicle_cards["new"] = new_card
+            self._vehicle_rows.append(new_card)
 
         form = Card(self._step_frame, pad=theme.PAD_LG)
         form.pack(fill="both", expand=True, pady=(theme.PAD_MD, 0))
@@ -256,42 +281,50 @@ class BookingWizard(tk.Frame):
         row.pack(fill="x", pady=(theme.PAD_SM, 0))
         self._v_label = EntryField(row, label="Nickname *", width=24,
                                    placeholder="e.g. Daily car",
+                                   font=theme.FONT_INPUT, pad_y=10,
                                    text=self._draft["vehicle"]["label"] if
                                    self._draft["vehicle"] else "")
         self._v_label.pack(side="left")
         self._v_type = tk.StringVar(value=self._draft["vehicle_type"])
         seg = tk.Frame(row, bg=theme.BG_SURFACE)
         seg.pack(side="left", padx=(24, 0), pady=(18, 0))
+        # vehicle types as pills now, not boxed radios
         for vt in config.VEHICLE_TYPES:
-            b = tk.Radiobutton(seg, text=vt, variable=self._v_type,
-                               value=vt, command=self._pick_vtype,
-                               font=theme.FONT_BODY, bg=theme.BG_SURFACE,
-                               cursor="hand2")
-            b.pack(side="left", padx=(0, 14))
-            self._vehicle_rows.append(b)
+            chip = Chip(seg, text=vt,
+                        state="selected" if vt == self._draft["vehicle_type"]
+                        else "normal",
+                        command=lambda v=vt: self._pick_vtype(v))
+            chip.pack(side="left", padx=(0, 8))
+            self._vtype_chips[vt] = chip
+            self._vehicle_rows.append(chip)
 
         grid = tk.Frame(form.body, bg=theme.BG_SURFACE)
         grid.pack(fill="x", pady=(theme.PAD_SM, 0))
         self._v_make = EntryField(grid, width=22, label="Make *",
                                   placeholder="e.g. Toyota",
+                                  font=theme.FONT_INPUT, pad_y=10,
                                   text=self._draft["vehicle"]["make"]
                                   if self._draft["vehicle"] else "")
-        self._v_make.grid(row=0, column=0, padx=(0, 18), sticky="w")
+        self._v_make.grid(row=0, column=0, padx=(0, theme.PAD_MD),
+                          sticky="w")
         self._v_model = EntryField(grid, width=22, label="Model *",
+                                   font=theme.FONT_INPUT, pad_y=10,
                                    text=self._draft["vehicle"]["model"]
                                    if self._draft["vehicle"] else "")
         self._v_model.grid(row=0, column=1, sticky="w")
         # Color and Plate on a second row so they don't clip at 1000px wide
         self._v_color = EntryField(grid, width=22, label="Color",
+                                   font=theme.FONT_INPUT, pad_y=10,
                                    text=self._draft["vehicle"]["color"]
                                    if self._draft["vehicle"] else "")
-        self._v_color.grid(row=1, column=0, padx=(0, 18), sticky="w",
-                           pady=(theme.PAD_SM, 0))
+        self._v_color.grid(row=1, column=0, padx=(0, theme.PAD_MD),
+                           sticky="w", pady=(theme.PAD_MD, 0))
         self._v_plate = EntryField(grid, width=22, label="Plate",
+                                   font=theme.FONT_INPUT, pad_y=10,
                                    text=self._draft["vehicle"]["plate"]
                                    if self._draft["vehicle"] else "")
         self._v_plate.grid(row=1, column=1, sticky="w",
-                           pady=(theme.PAD_SM, 0))
+                           pady=(theme.PAD_MD, 0))
         # Typing in the form means "new vehicle" - deselect any saved pick.
         for field in (self._v_label, self._v_make, self._v_model,
                       self._v_color, self._v_plate):
@@ -311,13 +344,27 @@ class BookingWizard(tk.Frame):
                 form.body, "Save this vehicle for next time", bg=theme.BG_SURFACE)
             self._saved_vehicle_check.pack(anchor="w", pady=(theme.PAD_SM, 0))
 
+    def _select_vehicle(self, vid):
+        """A saved-vehicle card was clicked - fill the form with it."""
+        self._vehicle_choice.set(str(vid))
+        self._paint_vehicle_cards()
+        self._pick_vehicle()
+
+    def _paint_vehicle_cards(self):
+        """Highlights only the picked vehicle card."""
+        choice = self._vehicle_choice.get()
+        for key, card in self._vehicle_cards.items():
+            card.set_selected(key == str(choice))
+
     def _switch_to_new_vehicle(self):
         """Switches to the typed form when the user edits a vehicle field.
-        Keeps the typed text; only the explicit radio clears the form."""
+        Keeps the typed text; only the explicit card clears the form."""
         if getattr(self, "_vehicle_choice", None) and \
                 self._vehicle_choice.get().isdigit():
             self._vehicle_choice.set("new")
             self._draft["vehicle"] = None
+            if getattr(self, "_vehicle_cards", None):
+                self._paint_vehicle_cards()
             if self._saved_vehicle_check is None:
                 self._saved_vehicle_check = CheckField(
                     getattr(self, "_vehicle_form_body", self._step_frame),
@@ -333,8 +380,10 @@ class BookingWizard(tk.Frame):
         so nothing feeds the typed values underneath."""
         self._vehicle_choice.set("new")
         self._draft["vehicle"] = None
+        self._paint_vehicle_cards()
         self._v_label.set("")
         self._v_type.set(self._draft.get("vehicle_type", "Sedan"))
+        self._paint_vtype_chips()
         self._v_make.set("")
         self._v_model.set("")
         self._v_color.set("")
@@ -349,13 +398,22 @@ class BookingWizard(tk.Frame):
         except Exception:
             pass
 
-    def _pick_vtype(self):
-        """Vehicle type radio changed - update price labels as well."""
+    def _paint_vtype_chips(self):
+        """Green pill on the chosen vehicle type only."""
+        for name, chip in self._vtype_chips.items():
+            chip.set_state("selected" if name == self._v_type.get()
+                           else "normal")
+
+    def _pick_vtype(self, value=None):
+        """Vehicle type pill changed - update price labels as well."""
+        if value:
+            self._v_type.set(value)
+        self._paint_vtype_chips()
         self._draft["vehicle_type"] = self._v_type.get()
         self._update_prices()
 
     def _pick_vehicle(self):
-        """A saved vehicle radio got picked - fills the form with it."""
+        """A saved vehicle card got picked - fills the form with it."""
         try:
             vid = int(self._vehicle_choice.get())
         except ValueError:
@@ -366,6 +424,7 @@ class BookingWizard(tk.Frame):
         self._draft["vehicle"] = dict(vehicle)
         self._v_label.set(vehicle["label"])
         self._v_type.set(vehicle["vehicle_type"])
+        self._paint_vtype_chips()
         self._v_make.set(vehicle["make"] or "")
         self._v_model.set(vehicle["model"] or "")
         self._v_color.set(vehicle["color"] or "")
@@ -441,7 +500,9 @@ class BookingWizard(tk.Frame):
             selected = tier["id"] == self._draft["tier_id"]
             price = config.price_for(tier["id"], self._draft["vehicle_type"])
             card = Card(row, radius=theme.RADIUS_LG, pad=theme.PAD_LG,
-                        bg=theme.BG_SOFT if selected else theme.BG_SURFACE)
+                        bg=theme.ACCENT_SOFT if selected else theme.BG_SURFACE,
+                        border=theme.PRIMARY if selected else theme.BORDER,
+                        border_w=2 if selected else 1)
             card.grid(row=0, column=col, sticky="nsew",
                       padx=(0, theme.PAD_SM))
             card.body.bind("<Button-1>", lambda e, t=tier["id"]: self._pick_tier(t))
@@ -449,16 +510,25 @@ class BookingWizard(tk.Frame):
                                   font=theme.FONT_CARD_TITLE,
                                   fg=theme.PRIMARY
                                   if selected else theme.TEXT,
-                                  bg=card.card_bg)
+                                  bg=card.card_bg, cursor="hand2")
             card.title.pack(anchor="w")
+            card.title.bind("<Button-1>",
+                            lambda e, t=tier["id"]: self._pick_tier(t))
             card.price_label = tk.Label(card.body, text="\u20b1" + str(price),
                                         font=theme.FONT_PRICE,
-                                        fg=theme.TEXT, bg=card.card_bg)
+                                        fg=theme.TEXT, bg=card.card_bg,
+                                        cursor="hand2")
             card.price_label.pack(anchor="w", pady=(2, theme.PAD_SM))
+            card.price_label.bind("<Button-1>",
+                                  lambda e, t=tier["id"]: self._pick_tier(t))
             for bullet in tier["bullets"]:
-                tk.Label(card.body, text=bullet, font=theme.FONT_SMALL,
-                         fg=theme.TEXT_MUTED,
-                         bg=card.card_bg).pack(anchor="w")
+                bullet_label = tk.Label(card.body, text=bullet,
+                                        font=theme.FONT_SMALL,
+                                        fg=theme.TEXT_MUTED,
+                                        bg=card.card_bg, cursor="hand2")
+                bullet_label.pack(anchor="w")
+                bullet_label.bind("<Button-1>",
+                                  lambda e, t=tier["id"]: self._pick_tier(t))
             self._tier_cards.append((card, tier["id"]))
 
         addons_row = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
@@ -485,10 +555,19 @@ class BookingWizard(tk.Frame):
         self._draft["tier_id"] = tier_id
         for card, tid in self._tier_cards:
             selected = tid == tier_id
-            card.set_card_bg(theme.BG_SOFT if selected else theme.BG_SURFACE)
+            card.set_card_bg(theme.ACCENT_SOFT if selected
+                             else theme.BG_SURFACE)
+            # green border marks the chosen package
+            card.set_border(theme.PRIMARY if selected else theme.BORDER,
+                            2 if selected else 1)
             card.title.configure(fg=theme.PRIMARY if selected else theme.TEXT,
                                  bg=card.card_bg)
             card.price_label.configure(bg=card.card_bg)
+            for child in card.body.winfo_children():
+                try:
+                    child.configure(bg=card.card_bg)
+                except Exception:
+                    pass
         self._update_prices()
 
     def _toggle_addon(self, addon_id):
@@ -561,13 +640,13 @@ class BookingWizard(tk.Frame):
         self._paint_slots()
 
         # the live summary strip - the fun bit that fills in as you choose
-        strip = tk.Frame(self._step_frame, bg=theme.BG_SOFT)
+        strip = Card(self._step_frame, bg=theme.ACCENT_SOFT,
+                     border=theme.ACCENT_SOFT, pad=theme.PAD_MD)
         strip.pack(fill="x", pady=(theme.PAD_LG, theme.PAD_MD))
         self._pick_label = tk.Label(
-            strip, text="", font=theme.FONT_BODY_BOLD, fg=theme.PRIMARY,
-            bg=theme.BG_SOFT, justify="left")
-        self._pick_label.pack(anchor="w", padx=theme.PAD_LG,
-                              pady=theme.PAD_MD)
+            strip.body, text="", font=theme.FONT_BODY_BOLD,
+            fg=theme.PRIMARY, bg=theme.ACCENT_SOFT, justify="left")
+        self._pick_label.pack(anchor="w")
         tk.Label(self._step_frame,
                  text=config.slot_note(),
                  font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
@@ -674,13 +753,14 @@ class BookingWizard(tk.Frame):
     # STEP 4 - LOCATION
     # ------------------------------------------------------------------
     def _step_location(self):
-        """Saved address radios or a new address form + save checkbox."""
+        """Saved address cards or a new address form + save checkbox."""
         self._clear_step()
+        self._address_cards = {}
         preamble = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
         preamble.pack(fill="x", pady=(theme.PAD_SM, 0))
         tk.Label(preamble, text="We come to you. "
                  "Tell us where to find the car.",
-                 font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
+                 font=theme.FONT_SMALL, fg=theme.TEXT_MUTED,
                  bg=theme.BG_SURFACE).pack(anchor="w")
         if self._saved_addresses:
             saved = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
@@ -695,30 +775,27 @@ class BookingWizard(tk.Frame):
             if chosen and chosen.get("saved_id"):
                 start = str(chosen["saved_id"])
             self._address_choice = tk.StringVar(value=str(start))
+            # selectable cards instead of the old tiny radios
             for a in self._saved_addresses:
                 # address_lines() already returns one readable line
                 lines = database.address_lines(
                     a["address"], a["barangay"], a["city"], a["landmark"])
-                item = tk.Frame(saved, bg=theme.BG_SOFT)
-                item.pack(fill="x", pady=3)
-                radio = tk.Radiobutton(item, variable=self._address_choice,
-                                       value=str(a["id"]),
-                                       command=self._pick_address,
-                                       bg=theme.BG_SOFT, cursor="hand2")
-                radio.pack(side="left", padx=(8, 4))
-                tk.Label(item, text=(a["label"] + " - " + lines),
-                         font=theme.FONT_BODY, fg=theme.TEXT,
-                         bg=theme.BG_SOFT).pack(side="left", pady=6)
-                self._address_rows.append(item)
-            # last row: use the form instead of any saved address
-            fresh_row = tk.Frame(saved, bg=theme.BG_SOFT)
-            fresh_row.pack(fill="x", pady=(0, 6))
-            tk.Radiobutton(fresh_row, variable=self._address_choice,
-                           value="new", command=self._pick_new_address,
-                           text="+ Type a new address",
-                           bg=theme.BG_SOFT, cursor="hand2").pack(
-                               side="left", padx=(8, 4), pady=6)
-            self._address_rows.append(fresh_row)
+                card = SelectCard(
+                    saved, title=a["label"], subtitle=lines, height=64,
+                    selected=str(a["id"]) == str(start),
+                    command=lambda aid=a["id"]: self._select_address(aid))
+                card.pack(fill="x", pady=(0, 6))
+                self._address_cards[str(a["id"])] = card
+                self._address_rows.append(card)
+            # last card: use the form instead of any saved address
+            new_card = SelectCard(
+                saved, title="+ Type a new address",
+                subtitle="Enter the details below", height=64,
+                selected=str(start) == "new",
+                command=self._pick_new_address)
+            new_card.pack(fill="x", pady=(0, 6))
+            self._address_cards["new"] = new_card
+            self._address_rows.append(new_card)
 
         form = Card(self._step_frame, pad=theme.PAD_LG)
         form.pack(fill="both", expand=True, pady=(theme.PAD_MD, 0))
@@ -734,23 +811,31 @@ class BookingWizard(tk.Frame):
         chosen = self._draft.get("address") or {}
         self._a_label = EntryField(grid, width=20, label="Label *",
                                    placeholder="Home / Office",
+                                   font=theme.FONT_INPUT, pad_y=10,
                                    text=chosen.get("label", ""))
-        self._a_label.grid(row=0, column=0, sticky="w", padx=(0, 18))
+        self._a_label.grid(row=0, column=0, sticky="w",
+                           padx=(0, theme.PAD_MD))
         self._a_street = EntryField(grid, width=32, label="Street address *",
                                     placeholder="House number and street",
+                                    font=theme.FONT_INPUT, pad_y=10,
                                     text=chosen.get("address", ""))
         self._a_street.grid(row=0, column=1, sticky="w")
         self._a_barangay = EntryField(grid, width=20, label="Barangay *",
+                                      font=theme.FONT_INPUT, pad_y=10,
                                       text=chosen.get("barangay", ""))
-        self._a_barangay.grid(row=1, column=0, sticky="w", pady=(10, 0))
+        self._a_barangay.grid(row=1, column=0, sticky="w",
+                              pady=(theme.PAD_MD, 0))
         self._a_city = EntryField(grid, width=20, label="City *",
+                                  font=theme.FONT_INPUT, pad_y=10,
                                   text=chosen.get("city", ""))
-        self._a_city.grid(row=1, column=1, sticky="w", pady=(10, 0))
+        self._a_city.grid(row=1, column=1, sticky="w",
+                          pady=(theme.PAD_MD, 0))
         self._a_landmark = EntryField(grid, width=42, label="Landmark",
                                       placeholder="e.g. beside the bakery",
+                                      font=theme.FONT_INPUT, pad_y=10,
                                       text=chosen.get("landmark", ""))
         self._a_landmark.grid(row=2, column=0, columnspan=2, sticky="w",
-                              pady=(10, 0))
+                              pady=(theme.PAD_MD, 0))
         # Typing in the form means "+ Type a new address" - auto-switch.
         for field in (self._a_label, self._a_street, self._a_barangay,
                       self._a_city, self._a_landmark):
@@ -765,14 +850,27 @@ class BookingWizard(tk.Frame):
                 bg=theme.BG_SURFACE)
             self._saved_address_check.pack(anchor="w", pady=(theme.PAD_SM, 0))
 
+    def _select_address(self, aid):
+        """A saved-address card was clicked - fill the address form."""
+        self._address_choice.set(str(aid))
+        self._paint_address_cards()
+        self._pick_address()
+
+    def _paint_address_cards(self):
+        """Highlights only the picked address card."""
+        choice = self._address_choice.get()
+        for key, card in self._address_cards.items():
+            card.set_selected(key == str(choice))
+
     def _switch_to_new_address(self):
         """Switches to the '+ Type a new address' option when the user types."""
         if getattr(self, "_address_choice", None) and \
                 self._address_choice.get().isdigit():
             self._address_choice.set("new")
+            self._paint_address_cards()
 
     def _pick_address(self):
-        """A saved address radio got picked - fill the address form."""
+        """A saved address card got picked - fill the address form."""
         try:
             aid = int(self._address_choice.get())
         except ValueError:
@@ -796,7 +894,9 @@ class BookingWizard(tk.Frame):
                 return
 
     def _pick_new_address(self):
-        """The '+ Type a new address' radio got picked - keep what is typed."""
+        """The '+ Type a new address' card was picked - keep what is typed."""
+        self._address_choice.set("new")
+        self._paint_address_cards()
         pick = self._draft.get("address")
         if pick is not None:
             pick.pop("saved_id", None)
@@ -843,12 +943,14 @@ class BookingWizard(tk.Frame):
     # STEP 5 - REVIEW
     # ------------------------------------------------------------------
     def _step_review(self):
-        """Summary lines with a breakdown: base + add-ons = total."""
+        """One tidy summary card with the bold total in green."""
         self._clear_step()
-        left = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
-        left.pack(side="left", fill="both", expand=True)
-        right = tk.Frame(self._step_frame, bg=theme.BG_SURFACE)
-        right.pack(side="right", padx=(theme.PAD_XL, 0))
+        card = Card(self._step_frame, pad=theme.PAD_LG)
+        card.pack(fill="x")
+        body = card.body
+        tk.Label(body, text="Booking summary", font=theme.FONT_CARD_TITLE,
+                 fg=theme.TEXT, bg=theme.BG_SURFACE).pack(
+                     anchor="w", pady=(0, theme.PAD_SM))
 
         v = self._draft["vehicle"]
         a = self._draft["address"]
@@ -862,27 +964,25 @@ class BookingWizard(tk.Frame):
             ("Where", database.address_lines(
                 a["address"], a["barangay"], a["city"], a["landmark"])),
         ]
+        # label/value rows line up nicely in two columns
         for key, value in lines:
-            tk.Label(left, text=key, font=theme.FONT_SMALL_BOLD,
-                     fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE).pack(
-                         anchor="w", pady=(theme.PAD_SM, 0))
-            tk.Label(left, text=value, font=theme.FONT_BODY, fg=theme.TEXT,
-                     bg=theme.BG_SURFACE, wraplength=340,
-                     justify="left").pack(anchor="w")
+            row = tk.Frame(body, bg=theme.BG_SURFACE)
+            row.pack(fill="x", pady=4)
+            tk.Label(row, text=key, font=theme.FONT_SMALL_BOLD,
+                     fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE, width=9,
+                     anchor="w").pack(side="left")
+            tk.Label(row, text=value, font=theme.FONT_BODY, fg=theme.TEXT,
+                     bg=theme.BG_SURFACE, wraplength=520, justify="left",
+                     anchor="w").pack(side="left", fill="x", expand=True)
+
+        tk.Frame(body, bg=theme.BORDER, height=1).pack(
+            fill="x", pady=(theme.PAD_MD, theme.PAD_SM))
 
         base = config.price_for(self._draft["tier_id"],
                                 self._draft["vehicle_type"])
         addon_total = 0
         for addon_id in self._draft["addons"]:
             addon_total = addon_total + config.ADD_ONS[addon_id]["price"]
-        tk.Label(right, text="Price breakdown", font=theme.FONT_BODY_BOLD,
-                 fg=theme.TEXT, bg=theme.BG_SURFACE).pack(anchor="w")
-        tk.Label(right, text=config.tier_name(self._draft["tier_id"])
-                 + " (" + self._draft["vehicle_type"] + ")",
-                 font=theme.FONT_SMALL, fg=theme.TEXT_MUTED,
-                 bg=theme.BG_SURFACE).pack(anchor="w")
-        table = tk.Frame(right, bg=theme.BG_SURFACE)
-        table.pack(anchor="w", pady=(theme.PAD_SM, 0))
         rows = [("Base", "\u20b1" + str(base))]
         for addon_id in self._draft["addons"]:
             info = config.ADD_ONS[addon_id]
@@ -890,19 +990,20 @@ class BookingWizard(tk.Frame):
         rows.append(("Total", "\u20b1" + str(base + addon_total)))
         for i, (name, amount) in enumerate(rows):
             last = i == len(rows) - 1
-            tk.Label(table, text=name, font=theme.FONT_BODY_BOLD if last
-                     else theme.FONT_SMALL,
-                     fg=theme.TEXT if last else theme.TEXT_MUTED,
-                     bg=theme.BG_SURFACE).grid(row=i, column=0, sticky="w")
-            tk.Label(table, text=amount,
+            row = tk.Frame(body, bg=theme.BG_SURFACE)
+            row.pack(fill="x", pady=2)
+            tk.Label(row, text=name,
                      font=theme.FONT_BODY_BOLD if last else theme.FONT_SMALL,
-                     fg=theme.TEXT, bg=theme.BG_SURFACE).grid(
-                         row=i, column=1, sticky="e", padx=(30, 0))
-        note = tk.Frame(right, bg=theme.BG_SURFACE)
-        note.pack(anchor="w", pady=(theme.PAD_MD, 0))
-        tk.Label(note, text=config.REVIEW_NOTE, font=theme.FONT_TINY,
+                     fg=theme.PRIMARY if last else theme.TEXT_MUTED,
+                     bg=theme.BG_SURFACE).pack(side="left")
+            tk.Label(row, text=amount,
+                     font=theme.FONT_BODY_BOLD if last else theme.FONT_SMALL,
+                     fg=theme.PRIMARY if last else theme.TEXT,
+                     bg=theme.BG_SURFACE).pack(side="right")
+        tk.Label(body, text=config.REVIEW_NOTE, font=theme.FONT_TINY,
                  fg=theme.TEXT_MUTED, bg=theme.BG_SURFACE,
-                 wraplength=260, justify="left").pack(anchor="w")
+                 wraplength=560, justify="left").pack(
+                     anchor="w", pady=(theme.PAD_SM, 0))
 
     def _confirm(self):
         """Validates everything, saves the booking as Pending, shows a toast."""

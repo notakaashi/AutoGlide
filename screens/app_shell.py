@@ -19,7 +19,8 @@ import config
 import database
 import utils.images
 
-from components import CenteredColumn, ScrollFrame
+from components import (CenteredColumn, ScrollFrame, Card, Button,
+                        SidebarItem, IconBadge, nav_glyph)
 
 
 from screens.admin_clients import AdminClientsView
@@ -229,57 +230,56 @@ class AdminShell(tk.Frame):
     # LAYOUT
     # ------------------------------------------------------------------
     def _build(self):
-        """Sidebar + wide content area."""
-        sidebar = tk.Frame(self, bg=theme.PRIMARY, width=220)
+        """Sidebar with pill menu + wide content area."""
+        sidebar = tk.Frame(self, bg=theme.PRIMARY, width=240)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
 
         brand_area = tk.Frame(sidebar, bg=theme.PRIMARY)
-        brand_area.pack(fill="x", pady=(theme.PAD_LG, theme.PAD_XL))
+        brand_area.pack(fill="x", padx=theme.PAD_MD,
+                        pady=(theme.PAD_LG, theme.PAD_LG))
         # the actual logo picture, not the old accent dot
         logo = utils.images.load_image("logo.jpg", (38, 38), rounded=8)
         logo_lbl = tk.Label(brand_area, image=logo, bg=theme.PRIMARY)
         logo_lbl.image = logo
-        logo_lbl.pack(side="left", padx=(theme.PAD_LG, 0))
+        logo_lbl.pack(side="left")
         tk.Label(brand_area, text=" AutoGlide", font=theme.FONT_BRAND,
                  fg=theme.TEXT_ON_DARK, bg=theme.PRIMARY).pack(side="left")
 
-        middle = tk.Frame(sidebar, bg=theme.PRIMARY)
-        middle.pack(fill="both", expand=True)
-        for key, label in AdminShell.ITEMS:
-            row = tk.Label(middle, text="  " + label,
-                           font=theme.FONT_BODY, fg=theme.TEXT_ON_DARK,
-                           bg=theme.PRIMARY, anchor="w", pady=9,
-                           cursor="hand2")
-            row.pack(fill="x")
-            row.bind("<Button-1>", lambda e=None, k=key: self.switch_view(k))
-            row.bind("<Enter>", lambda e=None, r=row: self._hover(r, True))
-            row.bind("<Leave>", lambda e=None, r=row: self._hover(r, False))
-            self._rows[key] = row
+        # small section caption above the menu items
+        tk.Label(sidebar, text="MENU", font=theme.FONT_TINY,
+                 fg=theme.ACCENT_SOFT, bg=theme.PRIMARY, anchor="w").pack(
+                     fill="x", padx=theme.PAD_LG, pady=(0, 6))
 
-        # bottom: hairline separator, then the account name and Log Out
-        # aligned like the nav rows above (same "  " prefix) and padded
-        # off the window edge
-        bottom = tk.Frame(sidebar, bg=theme.PRIMARY)
-        bottom.pack(side="bottom", fill="x", pady=(theme.PAD_MD,
-                                                   theme.PAD_LG + 8))
-        tk.Frame(bottom, bg=theme.ACCENT_SOFT, height=1
-                 ).pack(fill="x", padx=theme.PAD_LG, pady=(0, 10))
-        # account row: round profile picture next to the username.
-        # Log Out lives in the menu that pops up when you click this.
-        who_row = tk.Frame(bottom, bg=theme.PRIMARY)
-        who_row.pack(fill="x", pady=(0, 4))
-        pfp = utils.images.load_image("pfp.jpg", (34, 34), rounded=17)
-        pfp_lbl = tk.Label(who_row, image=pfp, bg=theme.PRIMARY, cursor="hand2")
-        pfp_lbl.image = pfp
-        pfp_lbl.pack(side="left", padx=(theme.PAD_LG, 8))
-        name_lbl = tk.Label(who_row, text=self._who(), font=theme.FONT_BODY,
-                            fg=theme.ACCENT_SOFT, bg=theme.PRIMARY,
-                            cursor="hand2")
-        name_lbl.pack(side="left")
-        self._who_row = who_row
-        pfp_lbl.bind("<Button-1>", self._open_account_menu)
-        name_lbl.bind("<Button-1>", self._open_account_menu)
+        middle = tk.Frame(sidebar, bg=theme.PRIMARY)
+        middle.pack(fill="both", expand=True, padx=theme.PAD_SM)
+        for key, label in AdminShell.ITEMS:
+            glyph, icon_font = nav_glyph(key)
+            item = SidebarItem(middle, glyph, label, font=icon_font,
+                               command=lambda k=key: self.switch_view(k))
+            item.pack(fill="x", pady=2)
+            self._rows[key] = item
+
+        # bottom user card: avatar initials, name, role and Sign out
+        user_card = Card(sidebar, bg=theme.ACCENT, border=theme.ACCENT,
+                         pad=theme.PAD_MD)
+        user_card.pack(side="bottom", fill="x", padx=theme.PAD_MD,
+                       pady=(theme.PAD_MD, theme.PAD_LG))
+        avatar = IconBadge(user_card.body, self._initials(), size=36,
+                           bg=theme.ACCENT, fill=theme.ACCENT_SOFT,
+                           fg=theme.PRIMARY, font=theme.FONT_SMALL_BOLD)
+        avatar.pack(side="left")
+        info = tk.Frame(user_card.body, bg=theme.ACCENT)
+        info.pack(side="left", padx=(10, 0))
+        tk.Label(info, text=self._display_name(), font=theme.FONT_BODY_BOLD,
+                 fg=theme.TEXT_ON_DARK, bg=theme.ACCENT,
+                 anchor="w").pack(anchor="w")
+        tk.Label(info, text="Admin", font=theme.FONT_TINY,
+                 fg=theme.ACCENT_SOFT, bg=theme.ACCENT,
+                 anchor="w").pack(anchor="w")
+        Button(user_card.body, text="Sign out", command=self.app.logout,
+               variant="light", height=34).pack(fill="x",
+                                                pady=(theme.PAD_MD, 0))
 
         content = tk.Frame(self, bg=theme.BG_APP)
         content.pack(side="left", fill="both", expand=True)
@@ -287,30 +287,17 @@ class AdminShell(tk.Frame):
         self._content_holder = content
         self.switch_view("dashboard")
 
-    def _who(self):
-        """Shows who is signed in under the menu."""
-        return (self.current_user["username"] or "").strip()
+    def _display_name(self):
+        """Full name when we have one, otherwise the username."""
+        user = self.current_user
+        return (user["full_name"] or user["username"] or "Admin").strip()
 
-    def _open_account_menu(self, event=None):
-        """Small menu under the account name - the only place with Log Out."""
-        menu = tk.Menu(self, tearoff=0, font=theme.FONT_BODY,
-                       bg=theme.BG_SURFACE, fg=theme.TEXT,
-                       activebackground=theme.BG_HOVER,
-                       activeforeground=theme.TEXT)
-        menu.add_command(label="Log Out", command=self.app.logout)
-        try:
-            menu.tk_popup(self._who_row.winfo_rootx(),
-                          self._who_row.winfo_rooty()
-                          + self._who_row.winfo_height() + 4)
-        finally:
-            menu.grab_release()
-
-    def _hover(self, row, inside):
-        """Sidebar hover color, skipping the active row."""
-        if row is self._current_row:
-            return
-        # PRIMARY_HOVER exists; PRIMARY_DARK does not (crashed on hover)
-        row.configure(bg=theme.PRIMARY_HOVER if inside else theme.PRIMARY)
+    def _initials(self):
+        """Two letters for the round avatar."""
+        parts = (self.current_user["full_name"]
+                 or self.current_user["username"] or "A").split()
+        letters = "".join(p[0] for p in parts if p)[:2]
+        return (letters or "A").upper()
 
     # ------------------------------------------------------------------
     # VIEW SWITCHING
@@ -322,17 +309,10 @@ class AdminShell(tk.Frame):
         if self.current_view:
             self.current_view.destroy()
             self.current_view = None
-        for key, row in self._rows.items():
-            active = key == name
-            row.configure(font=theme.FONT_BODY_BOLD if active
-                          else theme.FONT_BODY,
-                          bg=theme.BG_APP if active else theme.PRIMARY,
-                          fg=theme.PRIMARY if active else theme.TEXT_ON_DARK)
-        bar = self._rows.get(name)
-        if bar:
-            self._current_row = bar
         if name not in ("dashboard", "bookings", "schedule", "clients"):
             name = "dashboard"
+        for key, row in self._rows.items():
+            row.set_active(key == name)
         self.current_view_name = name
         self.built_name = name
         # clear the old column, then build the staff page

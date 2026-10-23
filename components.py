@@ -53,6 +53,28 @@ def bind_wheel(widget, handler):
 
 
 # ---------------------------------------------------------------------------
+# SMALL NAV ICONS (Segoe MDL2 Assets, with a plain-symbol fallback)
+# ---------------------------------------------------------------------------
+NAV_GLYPHS = {
+    "dashboard": ("\uE80F", "\u25A6"),
+    "bookings": ("\uE8A5", "\u25A4"),
+    "schedule": ("\uE787", "\u25A5"),
+    "clients": ("\uE716", "\u25CF"),
+}
+
+
+def nav_glyph(key):
+    """Returns (glyph, font) - MDL2 when installed, else a plain symbol."""
+    try:
+        families = tkfont.families()
+    except Exception:
+        families = []
+    if "Segoe MDL2 Assets" in families:
+        return NAV_GLYPHS[key][0], theme.FONT_ICON
+    return NAV_GLYPHS[key][1], theme.FONT_SYMBOL
+
+
+# ---------------------------------------------------------------------------
 # BUTTON
 # ---------------------------------------------------------------------------
 class Button(tk.Canvas):
@@ -207,6 +229,12 @@ class Card(tk.Canvas):
         self.body.configure(bg=bg)
         self._draw(self.winfo_width(), self.winfo_height())
 
+    def set_border(self, color, width=1):
+        """Recolors the outline (used for the chosen wizard card)."""
+        self._border = color
+        self._border_w = width
+        self._draw(self.winfo_width(), self.winfo_height())
+
     def _draw(self, w, h):
         """Draws the rounded background and border."""
         self.delete("cardbg")
@@ -229,6 +257,23 @@ class SectionHeading(tk.Frame):
         if subtitle:
             tk.Label(self, text=subtitle, font=theme.FONT_SMALL,
                      fg=theme.TEXT_MUTED, bg=bg).pack(anchor="w", pady=(2, 0))
+
+
+class PageHeader(tk.Frame):
+    """A page title with a muted one-line subtitle (admin pages)."""
+    def __init__(self, master, title, subtitle="", bg=None):
+        bg = bg or bg_of(master)
+        super().__init__(master, bg=bg)
+        self.title_label = tk.Label(self, text=title, font=theme.FONT_SECTION,
+                                    fg=theme.TEXT, bg=bg)
+        self.title_label.pack(anchor="w")
+        if subtitle:
+            tk.Label(self, text=subtitle, font=theme.FONT_BODY,
+                     fg=theme.TEXT_MUTED, bg=bg).pack(anchor="w", pady=(2, 0))
+
+    def set_title(self, title):
+        """Updates the heading text (the schedule month changes)."""
+        self.title_label.configure(text=title)
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +371,83 @@ class StatusPill(tk.Canvas):
 
 
 # ---------------------------------------------------------------------------
+# ICON BADGE (small round tinted icon, used by stats and the sidebar)
+# ---------------------------------------------------------------------------
+class IconBadge(tk.Canvas):
+    """A small round tinted badge with one glyph or a short text."""
+    def __init__(self, master, glyph, size=36, bg=None,
+                 fill=theme.ACCENT_SOFT, fg=theme.PRIMARY, font=None):
+        self._parent_bg = bg or bg_of(master)
+        super().__init__(master, width=size, height=size,
+                         bg=self._parent_bg, highlightthickness=0, bd=0)
+        self.create_oval(1, 1, size - 1, size - 1, fill=fill, outline=fill)
+        self.create_text(size // 2, size // 2, text=glyph,
+                         font=font or theme.FONT_ICON, fill=fg)
+
+
+# ---------------------------------------------------------------------------
+# SIDEBAR ITEM (rounded pill row with an icon)
+# ---------------------------------------------------------------------------
+class SidebarItem(tk.Canvas):
+    """One sidebar menu row: rounded pill, small icon and a label."""
+    HEIGHT = 42
+
+    def __init__(self, master, glyph, text, font=theme.FONT_ICON,
+                 command=None, bg=theme.PRIMARY):
+        self._bg = bg
+        self._glyph = glyph
+        self._icon_font = font
+        self._text = text
+        self.command = command
+        self._active = False
+        self._hovering = False
+        super().__init__(master, height=self.HEIGHT, bg=bg,
+                         highlightthickness=0, bd=0, cursor="hand2")
+        self.bind("<Configure>", lambda e: self._draw())
+        self.bind("<Enter>", lambda e: self._set_hover(True))
+        self.bind("<Leave>", lambda e: self._set_hover(False))
+        self.bind("<Button-1>", lambda e: self._click())
+
+    def _draw(self):
+        """Paints the pill, the icon and the label."""
+        width = self.winfo_width()
+        if width <= 1:
+            return
+        height = self.HEIGHT
+        self.delete("all")
+        if self._active:
+            fill, fg = theme.SIDEBAR_PILL, theme.TEXT_ON_DARK
+        elif self._hovering:
+            fill, fg = theme.SIDEBAR_PILL_HOVER, theme.TEXT_ON_DARK
+        else:
+            fill, fg = self._bg, theme.ACCENT_SOFT
+        rounded_rectangle(self, 4, 2, width - 4, height - 2,
+                          theme.RADIUS_MD, fill=fill, outline=fill)
+        self.create_text(20, height // 2, text=self._glyph,
+                         font=self._icon_font, fill=fg)
+        self.create_text(42, height // 2, text=self._text,
+                         font=theme.FONT_BODY, fill=fg, anchor="w")
+
+    def _set_hover(self, entering):
+        """Soft hover pill, skipped while this row is active."""
+        if self._active:
+            return
+        self._hovering = entering
+        self._draw()
+
+    def _click(self):
+        """Runs the menu command."""
+        if self.command:
+            self.command()
+
+    def set_active(self, active):
+        """Marks this row as the current page."""
+        self._active = active
+        self._hovering = False
+        self._draw()
+
+
+# ---------------------------------------------------------------------------
 # SEGMENTED CONTROL (replaces radio buttons)
 # ---------------------------------------------------------------------------
 class SegmentedControl(tk.Frame):
@@ -398,15 +520,16 @@ class SegmentedControl(tk.Frame):
 # CHIP (used for time slots)
 # ---------------------------------------------------------------------------
 class Chip(tk.Canvas):
-    """A small selectable tag. States: normal, selected, full (disabled)."""
+    """A small selectable pill. States: normal, selected, full (disabled)."""
     def __init__(self, master, text, command=None, state="normal", bg=None):
         self._parent_bg = bg or bg_of(master)
-        self._font = tkfont.Font(font=theme.FONT_SMALL)
+        self._font = tkfont.Font(font=theme.FONT_SMALL_BOLD)
         self.text = text
         self.command = command
         self.state = state
-        width = self._font.measure(text) + 28
-        super().__init__(master, width=width, height=26, bg=self._parent_bg,
+        # reserve room for the "Full" tag so a chip never resizes later
+        width = self._font.measure(text + "  Full") + 30
+        super().__init__(master, width=width, height=30, bg=self._parent_bg,
                          highlightthickness=0, bd=0)
         self._hovering = False
         self._draw()
@@ -419,7 +542,8 @@ class Chip(tk.Canvas):
     def _draw(self):
         """Paints the chip to match its current state."""
         self.delete("all")
-        w = int(self["width"])
+        width = int(self["width"])
+        label = self.text + "  Full" if self.state == "full" else self.text
         if self.state == "selected":
             fill, text_color, outline = theme.PRIMARY, theme.TEXT_ON_DARK, theme.PRIMARY
         elif self.state == "full":
@@ -427,10 +551,10 @@ class Chip(tk.Canvas):
         else:
             fill = theme.BG_HOVER if self._hovering else theme.BG_SURFACE
             text_color, outline = theme.TEXT, theme.BORDER_STRONG
-        rounded_rectangle(self, 1, 1, w - 1, 25, 12, fill=fill, outline=outline,
-                          width=1)
-        self.create_text(w // 2, 13, text=self.text, font=theme.FONT_SMALL,
-                         fill=text_color)
+        rounded_rectangle(self, 1, 1, width - 1, 29, 15, fill=fill,
+                          outline=outline, width=1)
+        self.create_text(width // 2, 15, text=label,
+                         font=theme.FONT_SMALL_BOLD, fill=text_color)
 
     def _set_hover(self, entering):
         """Hover effect for normal chips."""
@@ -450,6 +574,83 @@ class Chip(tk.Canvas):
     def set_state(self, state):
         """Changes the chip state."""
         self.state = state
+        self._draw()
+
+
+# ---------------------------------------------------------------------------
+# SELECT CARD (rounded clickable option, replaces wizard radio buttons)
+# ---------------------------------------------------------------------------
+class SelectCard(tk.Canvas):
+    """A rounded card with a title and an optional subtitle.
+
+    Selected cards get a pine border and a light green tint.
+    """
+    def __init__(self, master, title, subtitle="", command=None,
+                 selected=False, bg=None, height=56):
+        self._parent_bg = bg or bg_of(master)
+        super().__init__(master, height=height, bg=self._parent_bg,
+                         highlightthickness=0, bd=0, cursor="hand2")
+        self._title = title
+        self._subtitle = subtitle
+        self.command = command
+        self.selected = selected
+        self._height = height
+        self._hovering = False
+        self.bind("<Configure>", lambda e: self._draw())
+        self.bind("<Enter>", lambda e: self._set_hover(True))
+        self.bind("<Leave>", lambda e: self._set_hover(False))
+        self.bind("<Button-1>", lambda e: self._click())
+
+    def _draw(self):
+        """Paints the card, its little radio dot and the text."""
+        width = self.winfo_width()
+        if width <= 1:
+            return
+        height = self._height
+        self.delete("all")
+        if self.selected:
+            fill, outline, line_w = theme.ACCENT_SOFT, theme.PRIMARY, 2
+        elif self._hovering:
+            fill, outline, line_w = theme.BG_HOVER, theme.BORDER_STRONG, 1
+        else:
+            fill, outline, line_w = theme.BG_SURFACE, theme.BORDER, 1
+        rounded_rectangle(self, 1, 1, width - 1, height - 1,
+                          theme.RADIUS_MD, fill=fill, outline=outline,
+                          width=line_w)
+        # the radio dot keeps it obvious that only one option is picked
+        cx, cy = 20, height // 2
+        self.create_oval(cx - 7, cy - 7, cx + 7, cy + 7,
+                         fill=theme.BG_SURFACE,
+                         outline=theme.PRIMARY if self.selected
+                         else theme.BORDER_STRONG)
+        if self.selected:
+            self.create_oval(cx - 3, cy - 3, cx + 3, cy + 3,
+                             fill=theme.PRIMARY, outline=theme.PRIMARY)
+        if self._subtitle:
+            self.create_text(38, 18, text=self._title, anchor="w",
+                             font=theme.FONT_BODY_BOLD, fill=theme.TEXT,
+                             width=width - 54)
+            self.create_text(38, height - 20, text=self._subtitle, anchor="w",
+                             font=theme.FONT_SMALL, fill=theme.TEXT_MUTED,
+                             width=width - 54)
+        else:
+            self.create_text(38, height // 2, text=self._title, anchor="w",
+                             font=theme.FONT_BODY_BOLD, fill=theme.TEXT,
+                             width=width - 54)
+
+    def _set_hover(self, entering):
+        """Soft hover tint."""
+        self._hovering = entering
+        self._draw()
+
+    def _click(self):
+        """Runs the pick handler."""
+        if self.command:
+            self.command()
+
+    def set_selected(self, selected):
+        """Highlights or un-highlights the card."""
+        self.selected = selected
         self._draw()
 
 
@@ -1062,11 +1263,17 @@ class Accordion(tk.Frame):
 # EMPTY STATE
 # ---------------------------------------------------------------------------
 class EmptyState(tk.Frame):
-    """A friendly message with a button, shown when a table has no rows."""
-    def __init__(self, master, text, button_text=None, command=None, bg=None):
+    """A friendly message with an optional icon and button."""
+    def __init__(self, master, text, button_text=None, command=None, bg=None,
+                 icon=None):
         bg = bg or bg_of(master)
         super().__init__(master, bg=bg)
-        tk.Label(self, text="", bg=bg).pack(pady=(20, 0))
+        if icon:
+            # muted symbol above the message (keeps empty panels friendly)
+            tk.Label(self, text=icon, font=("Segoe UI Symbol", 22),
+                     fg=theme.TEXT_FAINT, bg=bg).pack(pady=(18, 0))
+        else:
+            tk.Label(self, text="", bg=bg).pack(pady=(20, 0))
         tk.Label(self, text=text, font=theme.FONT_BODY, fg=theme.TEXT_MUTED,
                  bg=bg, wraplength=360, justify="center").pack()
         if button_text:

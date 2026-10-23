@@ -78,6 +78,10 @@ FONT_SMALL = (FONT_FAMILY, 12, "normal")
 FONT_SMALL_BOLD = (FONT_FAMILY, 12, "bold")
 FONT_TINY = (FONT_FAMILY, 11, "normal")
 
+# icons (Segoe MDL2 Assets with a Segoe UI Symbol fallback)
+FONT_ICON = ("Segoe MDL2 Assets", 15)
+FONT_SYMBOL = ("Segoe UI Symbol", 15)
+
 # ---------------------------------------------------------------------------
 # SPACING
 # ---------------------------------------------------------------------------
@@ -94,6 +98,14 @@ PAD_HERO = 40
 RADIUS_SM = 6
 RADIUS_MD = 10
 RADIUS_LG = 14
+RADIUS_PILL = 999
+
+# ---------------------------------------------------------------------------
+# ADMIN / WIZARD POLISH
+# ---------------------------------------------------------------------------
+SIDEBAR_PILL = "#2B4A38"          # active sidebar pill (lighter pine)
+SIDEBAR_PILL_HOVER = "#24402F"    # soft hover pill
+ROW_SOFT = BG_SOFT                # soft list rows inside white cards
 
 # ---------------------------------------------------------------------------
 # ttk STYLE (used only by the tables and scroll bars)
