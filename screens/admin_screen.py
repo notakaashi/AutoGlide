@@ -144,7 +144,7 @@ class AdminDashboard(tk.Frame):
         # gives it its real size (after_idle keeps us out of the Configure
         # handler; the chart is inside a stretch card, no loop risk)
         self._chart.bind(
-            "<Configure>", lambda e: self.after_idle(self._paint_chart))
+            "<Configure>", lambda e=None: self.after_idle(self._paint_chart))
         self._paint_chart()
 
     def _build_pending(self, columns):
@@ -236,34 +236,44 @@ class AdminDashboard(tk.Frame):
             self._pending_row(row)
 
     def _pending_row(self, row):
-        """One pending booking as a soft row with right-aligned answers."""
+        """One pending booking as a soft row with answers below the info."""
         client = (row["client_name"] or "Client #" + str(row["user_id"])).title()
         when = datetime.date.fromisoformat(row["booking_date"]).strftime(
             "%a, %b %d") + ", " + row["time_slot"]
         area = (row["city"] or "").title()
+
         item = tk.Frame(self._pending_list, bg=theme.ROW_SOFT)
         item.pack(fill="x", pady=(theme.PAD_SM, 0))
+
         inner = tk.Frame(item, bg=theme.ROW_SOFT)
         inner.pack(fill="x", padx=theme.PAD_MD, pady=theme.PAD_SM)
-        left = tk.Frame(inner, bg=theme.ROW_SOFT)
-        left.pack(side="left", fill="x", expand=True)
-        tk.Label(left, text="#" + str(row["id"]) + "  " + client,
+
+        # 1. Info area (Top)
+        info = tk.Frame(inner, bg=theme.ROW_SOFT)
+        info.pack(fill="x")
+
+        tk.Label(info, text="#" + str(row["id"]) + "  " + client,
                  font=theme.FONT_BODY_BOLD, fg=theme.TEXT,
                  bg=theme.ROW_SOFT).pack(anchor="w")
-        tk.Label(left, text=when + "  -  " + config.tier_name(row["tier_id"]),
+        tk.Label(info, text=when + "  -  " + config.tier_name(row["tier_id"]),
                  font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
                  bg=theme.ROW_SOFT).pack(anchor="w")
-        tk.Label(left, text=area, font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
+        tk.Label(info, text=area, font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
                  bg=theme.ROW_SOFT).pack(anchor="w")
+
+        # 2. Action area (Bottom) - full width buttons for better visibility
         actions = tk.Frame(inner, bg=theme.ROW_SOFT)
-        actions.pack(side="right")
+        actions.pack(fill="x", pady=(theme.PAD_SM, 0))
+
+        # Accept button (Left)
         Button(actions, text="Accept", height=32,
                command=lambda r=row: self._answer(r, "Confirmed"),
-               variant="primary").pack(side="left")
-        Button(actions, text="Decline", height=32, variant="ghost",
-               bg=theme.ROW_SOFT,
+               variant="primary").pack(side="left", fill="x", expand=True)
+
+        # Decline button (Right)
+        Button(actions, text="Decline", height=32, variant="danger",
                command=lambda r=row: self._answer(r, "Cancelled")).pack(
-                   side="left", padx=(theme.PAD_SM, 0))
+                   side="left", fill="x", expand=True, padx=(theme.PAD_SM, 0))
 
     def _answer(self, row, status):
         """Accept or Decline updates the DB right away, then repaints."""

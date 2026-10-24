@@ -48,7 +48,7 @@ class AdminBookingsView(tk.Frame):
         self._search = EntryField(search_row, label="", placeholder="Search client, "
                                   "package, address...", width=26)
         self._search.pack(side="left")
-        self._search.entry.bind("<KeyRelease>", lambda e: self.reload())
+        self._search.entry.bind("<KeyRelease>", lambda e=None: self.reload())
         # filter chips on their own row below the search box
         chips_row = tk.Frame(head, bg=theme.BG_APP)
         chips_row.pack(fill="x", pady=(theme.PAD_XS, 0))
@@ -114,7 +114,7 @@ class AdminBookingsView(tk.Frame):
         self._body_frame = body
         self._paint_detail()
         # re-cap whenever the window changes size
-        body.bind("<Configure>", lambda e: self._fit_detail())
+        body.bind("<Configure>", lambda e=None: self._fit_detail())
 
     def _pick_status(self, status):
         """Status filter chip clicked."""

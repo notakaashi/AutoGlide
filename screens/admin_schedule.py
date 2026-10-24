@@ -271,8 +271,7 @@ class AdminScheduleView(tk.Frame):
             Button(actions, text="Accept", height=32,
                    command=lambda r=row: self._answer(r, "Confirmed"),
                    variant="primary").pack(side="left")
-            Button(actions, text="Decline", height=32, variant="ghost",
-                   bg=theme.ROW_SOFT,
+            Button(actions, text="Decline", height=32, variant="danger",
                    command=lambda r=row: self._answer(r, "Cancelled")
                    ).pack(side="left", padx=(6, 0))
         else:

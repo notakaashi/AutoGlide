@@ -40,7 +40,7 @@ class AdminClientsView(tk.Frame):
         self._search = EntryField(bar, label="", placeholder="Search by "
                                   "name, username or email...", width=26)
         self._search.pack(side="left")
-        self._search.entry.bind("<KeyRelease>", lambda e: self.reload())
+        self._search.entry.bind("<KeyRelease>", lambda e=None: self.reload())
 
         body = tk.Frame(self, bg=theme.BG_APP)
         body.pack(fill="both", expand=True, padx=theme.PAD_LG,

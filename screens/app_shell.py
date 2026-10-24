@@ -265,11 +265,17 @@ class AdminShell(tk.Frame):
                          pad=theme.PAD_MD)
         user_card.pack(side="bottom", fill="x", padx=theme.PAD_MD,
                        pady=(theme.PAD_MD, theme.PAD_LG))
-        avatar = IconBadge(user_card.body, self._initials(), size=36,
+
+        # Top part of the card: avatar and name/role
+        top = tk.Frame(user_card.body, bg=theme.ACCENT)
+        top.pack(fill="x")
+
+        avatar = IconBadge(top, self._initials(), size=36,
                            bg=theme.ACCENT, fill=theme.ACCENT_SOFT,
                            fg=theme.PRIMARY, font=theme.FONT_SMALL_BOLD)
         avatar.pack(side="left")
-        info = tk.Frame(user_card.body, bg=theme.ACCENT)
+
+        info = tk.Frame(top, bg=theme.ACCENT)
         info.pack(side="left", padx=(10, 0))
         tk.Label(info, text=self._display_name(), font=theme.FONT_BODY_BOLD,
                  fg=theme.TEXT_ON_DARK, bg=theme.ACCENT,
@@ -277,6 +283,8 @@ class AdminShell(tk.Frame):
         tk.Label(info, text="Admin", font=theme.FONT_TINY,
                  fg=theme.ACCENT_SOFT, bg=theme.ACCENT,
                  anchor="w").pack(anchor="w")
+
+        # Bottom part: the sign out button (now correctly below the name)
         Button(user_card.body, text="Sign out", command=self.app.logout,
                variant="light", height=34).pack(fill="x",
                                                 pady=(theme.PAD_MD, 0))

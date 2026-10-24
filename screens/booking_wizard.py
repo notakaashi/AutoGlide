@@ -329,7 +329,7 @@ class BookingWizard(tk.Frame):
         for field in (self._v_label, self._v_make, self._v_model,
                       self._v_color, self._v_plate):
             field.entry.bind("<FocusIn>",
-                             lambda e: self._switch_to_new_vehicle())
+                             lambda e=None: self._switch_to_new_vehicle())
         tk.Label(form.body,
                  text="Fields marked * are required.",
                  font=theme.FONT_TINY, fg=theme.TEXT_MUTED,
@@ -840,7 +840,7 @@ class BookingWizard(tk.Frame):
         for field in (self._a_label, self._a_street, self._a_barangay,
                       self._a_city, self._a_landmark):
             field.entry.bind("<FocusIn>",
-                             lambda e: self._switch_to_new_address())
+                             lambda e=None: self._switch_to_new_address())
         if getattr(self, "_address_choice", None) and \
                 self._address_choice.get().isdigit():
             self._saved_address_check = None

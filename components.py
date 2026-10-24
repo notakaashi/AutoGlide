@@ -95,10 +95,10 @@ class Button(tk.Canvas):
                          highlightthickness=0, bd=0, cursor="hand2")
 
         self._colors = self._variant_colors(variant)
-        self.bind("<Configure>", lambda e: self._draw())
-        self.bind("<Enter>", lambda e: self._hover(True))
-        self.bind("<Leave>", lambda e: self._hover(False))
-        self.bind("<Button-1>", lambda e: self._paint(self._colors[2]))
+        self.bind("<Configure>", lambda e=None: self._draw())
+        self.bind("<Enter>", lambda e=None: self._hover(True))
+        self.bind("<Leave>", lambda e=None: self._hover(False))
+        self.bind("<Button-1>", lambda e=None: self._paint(self._colors[2]))
         self.bind("<ButtonRelease-1>", self._on_release)
 
     def _variant_colors(self, variant):
@@ -403,10 +403,10 @@ class SidebarItem(tk.Canvas):
         self._hovering = False
         super().__init__(master, height=self.HEIGHT, bg=bg,
                          highlightthickness=0, bd=0, cursor="hand2")
-        self.bind("<Configure>", lambda e: self._draw())
-        self.bind("<Enter>", lambda e: self._set_hover(True))
-        self.bind("<Leave>", lambda e: self._set_hover(False))
-        self.bind("<Button-1>", lambda e: self._click())
+        self.bind("<Configure>", lambda e=None: self._draw())
+        self.bind("<Enter>", lambda e=None: self._set_hover(True))
+        self.bind("<Leave>", lambda e=None: self._set_hover(False))
+        self.bind("<Button-1>", lambda e=None: self._click())
 
     def _draw(self):
         """Paints the pill, the icon and the label."""
@@ -478,9 +478,9 @@ class SegmentedControl(tk.Frame):
                     row_i = row_i + 1
             else:
                 label.pack(side="left")
-            label.bind("<Button-1>", lambda e, opt=option: self._select(opt))
-            label.bind("<Enter>", lambda e, opt=option: self._hover(opt, True))
-            label.bind("<Leave>", lambda e, opt=option: self._hover(opt, False))
+            label.bind("<Button-1>", lambda e=None, opt=option: self._select(opt))
+            label.bind("<Enter>", lambda e=None, opt=option: self._hover(opt, True))
+            label.bind("<Leave>", lambda e=None, opt=option: self._hover(opt, False))
             self.labels[option] = label
         self._refresh()
 
@@ -535,9 +535,9 @@ class Chip(tk.Canvas):
         self._draw()
         if state != "full":
             self.configure(cursor="hand2")
-            self.bind("<Enter>", lambda e: self._set_hover(True))
-            self.bind("<Leave>", lambda e: self._set_hover(False))
-            self.bind("<Button-1>", lambda e: self._click())
+            self.bind("<Enter>", lambda e=None: self._set_hover(True))
+            self.bind("<Leave>", lambda e=None: self._set_hover(False))
+            self.bind("<Button-1>", lambda e=None: self._click())
 
     def _draw(self):
         """Paints the chip to match its current state."""
@@ -596,10 +596,10 @@ class SelectCard(tk.Canvas):
         self.selected = selected
         self._height = height
         self._hovering = False
-        self.bind("<Configure>", lambda e: self._draw())
-        self.bind("<Enter>", lambda e: self._set_hover(True))
-        self.bind("<Leave>", lambda e: self._set_hover(False))
-        self.bind("<Button-1>", lambda e: self._click())
+        self.bind("<Configure>", lambda e=None: self._draw())
+        self.bind("<Enter>", lambda e=None: self._set_hover(True))
+        self.bind("<Leave>", lambda e=None: self._set_hover(False))
+        self.bind("<Button-1>", lambda e=None: self._click())
 
     def _draw(self):
         """Paints the card, its little radio dot and the text."""
@@ -899,7 +899,7 @@ class CalendarPopup(tk.Toplevel):
         self.inner = tk.Frame(self, bg=theme.BG_SURFACE)
         self.inner.pack(padx=1, pady=1)
         self._build()
-        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Escape>", lambda e=None: self.destroy())
         self.grab_set()
 
     def _build(self):
@@ -912,11 +912,11 @@ class CalendarPopup(tk.Toplevel):
         prev = tk.Label(header, text="<", font=theme.FONT_BUTTON, bg=theme.BG_SURFACE,
                         fg=theme.TEXT, padx=8, cursor="hand2")
         prev.pack(side="left")
-        prev.bind("<Button-1>", lambda e: self._shift(-1))
+        prev.bind("<Button-1>", lambda e=None: self._shift(-1))
         nxt = tk.Label(header, text=">", font=theme.FONT_BUTTON, bg=theme.BG_SURFACE,
                        fg=theme.TEXT, padx=8, cursor="hand2")
         nxt.pack(side="right")
-        nxt.bind("<Button-1>", lambda e: self._shift(1))
+        nxt.bind("<Button-1>", lambda e=None: self._shift(1))
         title = self.view.strftime("%B %Y")
         tk.Label(header, text=title, font=theme.FONT_BODY_BOLD, bg=theme.BG_SURFACE,
                  fg=theme.TEXT).pack(side="left", expand=True)
@@ -945,9 +945,9 @@ class CalendarPopup(tk.Toplevel):
         label.grid(row=row, column=col)
         if in_month and not is_past:
             label.configure(cursor="hand2")
-            label.bind("<Enter>", lambda e, l=label: l.configure(bg=theme.BG_HOVER))
-            label.bind("<Leave>", lambda e, l=label: l.configure(bg=theme.BG_SURFACE))
-            label.bind("<Button-1>", lambda e, d=day: self._pick(d))
+            label.bind("<Enter>", lambda e=None, l=label: l.configure(bg=theme.BG_HOVER))
+            label.bind("<Leave>", lambda e=None, l=label: l.configure(bg=theme.BG_SURFACE))
+            label.bind("<Button-1>", lambda e=None, d=day: self._pick(d))
 
     def _shift(self, months):
         """Moves the view one month forward or back."""
@@ -984,8 +984,8 @@ class DateField(tk.Frame):
         self.canvas = tk.Canvas(self, height=34, bg=bg, highlightthickness=0, bd=0,
                                 cursor="hand2")
         self.canvas.pack(fill="x")
-        self.canvas.bind("<Configure>", lambda e: self._draw())
-        self.canvas.bind("<Button-1>", lambda e: self._open())
+        self.canvas.bind("<Configure>", lambda e=None: self._draw())
+        self.canvas.bind("<Button-1>", lambda e=None: self._open())
         self._draw()
 
     def _min_width(self):
@@ -1180,8 +1180,8 @@ class CheckField(tk.Frame):
                              fg=theme.TEXT, bg=bg, cursor="hand2")
         self.box.pack(side="left")
         self.text.pack(side="left", padx=(6, 0))
-        self.box.bind("<Button-1>", lambda e: self.toggle())
-        self.text.bind("<Button-1>", lambda e: self.toggle())
+        self.box.bind("<Button-1>", lambda e=None: self.toggle())
+        self.text.bind("<Button-1>", lambda e=None: self.toggle())
         self._draw()
 
     def _draw(self):
@@ -1231,10 +1231,10 @@ class Accordion(tk.Frame):
         self.arrow.pack(side="right", padx=10)
         self.body = None
         for widget in (self.header, self.q_text, self.arrow):
-            widget.bind("<Button-1>", lambda e: self.toggle())
-        self.header.bind("<Enter>", lambda e: self.header.configure(
+            widget.bind("<Button-1>", lambda e=None: self.toggle())
+        self.header.bind("<Enter>", lambda e=None: self.header.configure(
             bg=theme.BG_HOVER) or self.q_text.configure(bg=theme.BG_HOVER))
-        self.header.bind("<Leave>", lambda e: self.header.configure(
+        self.header.bind("<Leave>", lambda e=None: self.header.configure(
             bg=self._bg) or self.q_text.configure(bg=self._bg))
 
     def toggle(self):
@@ -1415,7 +1415,7 @@ def open_dialog(parent, title, width, height, build, on_close=None):
     close = tk.Label(header, text="x", font=theme.FONT_BUTTON, fg=theme.TEXT_MUTED,
                      bg=theme.BG_SURFACE, padx=12, cursor="hand2")
     close.pack(side="right", padx=theme.PAD_SM)
-    close.bind("<Button-1>", lambda e: close_dialog())
+    close.bind("<Button-1>", lambda e=None: close_dialog())
     tk.Frame(dialog, bg=theme.BORDER, height=1).pack(fill="x")
 
     content = tk.Frame(dialog, bg=theme.BG_APP)
@@ -1433,7 +1433,7 @@ def open_dialog(parent, title, width, height, build, on_close=None):
         dialog.destroy()
 
     dialog.close = close_dialog
-    dialog.bind("<Escape>", lambda e: close_dialog())
+    dialog.bind("<Escape>", lambda e=None: close_dialog())
 
     # Center on the main window.
     root.update_idletasks()
